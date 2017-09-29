@@ -1,6 +1,5 @@
 FROM python:3
 
-#TEST
 #COPY ./docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 #CMD ["/bin/sh"]
 
