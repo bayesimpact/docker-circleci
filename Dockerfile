@@ -5,4 +5,4 @@ RUN curl -sSL https://get.docker.com/ | sh
 
 # Install python libraries needed for the scripts running here.
 RUN pip install --upgrade pip && \
-  pip install docker-compose requests shyaml
+  pip install docker-compose proselint requests shyaml
