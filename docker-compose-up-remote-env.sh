@@ -1,0 +1,82 @@
+#!/bin/bash
+# Starts a docker service container (with the same name as the image)
+# for the CircleCI remote docker environment.
+# In this environment volumes cannot be mounted from local folder
+# (they can still be mounted between containers), so we need to copy files manually
+# to fresh containers.
+# See https://discuss.circleci.com/t/copying-files-to-docker-compose-container/12837
+#
+# Usage:
+# $ docker-compose-up-remote-env.sh analytics
+# (instead of: docker-compose up analytics)
+
+# e: Exit immediately if a command exits with a non-zero error status.
+# x: Print commands before executing them.
+set -ex
+
+readonly SERVICE=$1
+readonly GIVEN_CONTAINER_ID=$2
+if [ -n "$GIVEN_CONTAINER_ID" ]; then
+  readonly CONTAINER_ID=$GIVEN_CONTAINER_ID
+else
+  readonly CONTAINER_ID=$SERVICE
+fi
+echo "Start container $CONTAINER_ID of service '$SERVICE' on the CircleCI remote docker environment"
+
+echo '1. Alter docker-compose.yml to remove volumes and entrypoint.'
+# Save which volumes should be created in the service.
+cat docker-compose.yml | shyaml get-value services.$SERVICE.volumes '' > volumes-$CONTAINER_ID.txt
+# Save entrypoints for the service.
+readonly ENTRYPOINT="$(cat docker-compose.yml | shyaml get-value services.$SERVICE.entrypoint '')"
+# Remove declared entrypoints and volumes in services.
+# The original file will be saved in docker-compose.yml.bak).
+sed -E '/^\ *(entrypoint:.*|volumes:|- \..*)\ *$/d' docker-compose.yml > docker-compose-altered-$CONTAINER_ID.yml
+
+echo '2. Start service without volumes and entrypoint.'
+# We run a random command (here 'ls') before running 'sleep 1000' to make sure 'sleep' doesn't get
+# the pid '1' which would make it impossible to kill the process at tear down.
+docker-compose -f docker-compose-altered-$CONTAINER_ID.yml run --name $CONTAINER_ID --no-deps -d $SERVICE /bin/sh -c "ls; sleep 1000"
+
+echo '3. Copy files declared as required volumes to the new service container.'
+cat volumes-$CONTAINER_ID.txt | while read line; do
+  # Split ./frontend/cfg:/usr/app/cfg:ro into ./frontend/cfg and /usr/app/cfg
+  if [[ "$line" =~ ^-[[:space:]]([^:]+):([^:]+) ]]; then
+    SRC="${BASH_REMATCH[1]}"
+    DST="${BASH_REMATCH[2]}"
+    if [ -d "$SRC" ]; then
+      # If the item is a directory:
+      # We create the destination folder and will fill it with the content of the source folder.
+      PATH_TO_CREATE="$DST"
+      # docker cp needs '/.' to be added at the end of folder paths
+      # in order to copy the content of the folder and not the parent folder as well.
+      SRC="$SRC/."
+    elif [ -f "$SRC" ]; then
+      # If the item is a file:
+      # We create a parent folder for the destination file
+      PATH_TO_CREATE="$(dirname "$DST")"
+    else
+      echo "WARNING: $SRC does not exist in the source file system."
+      continue
+    fi
+    docker exec $CONTAINER_ID mkdir -p "$PATH_TO_CREATE"
+    docker cp "$SRC" "$CONTAINER_ID:$DST"
+  else
+    echo "ERROR: Wrong format in volumes for $SERVICE: $line"
+    exit 1
+  fi
+done
+
+echo "4. Run entrypoint $ENTRYPOINT."
+# Our entrypoint are actually commands that we want to run before the actual commands
+# (as opposed to regular entrypoints) therefore it's OK to run it here.
+if [ -n "$ENTRYPOINT" ]; then
+  docker exec -t $CONTAINER_ID $ENTRYPOINT
+else
+  echo 'No entrypoint to run.'
+fi
+
+echo '5. Clean up tmp files.'
+rm volumes-$CONTAINER_ID.txt
+rm docker-compose-altered-$CONTAINER_ID.yml
+
+echo "Container $CONTAINER_ID is ready."
