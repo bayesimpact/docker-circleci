@@ -15,8 +15,8 @@ jobs:
       - run: |
           docker-compose build some-docker-service
           # Compose docker service with volumes (CircleCI 2.0 does not support this natively).
-          ./docker-compose-up-remote-env.sh some-docker-service
+          docker-compose-up-remote-env.sh some-docker-service
           docker exec -t some-docker-service ./some-script-in-the-container.sh
           # Clean up docker service with volumes (they stayed up because of some sleep process).
-          ./stop-dockers-from-compose-up-remote-env.sh
+          stop-dockers-from-compose-up-remote-env.sh
 ```
