@@ -1,0 +1,18 @@
+#!/bin/bash
+# Script to run using docker-compose then copy a file or a folder from stopped
+# container.
+set -x
+set -e
+
+readonly SERVICE_NAME="$1"
+readonly SOURCE_FOLDER_IN_CONTAINER="$2"
+readonly DESTINATION_FOLDER_ON_HOST="$3"
+shift 3
+
+# Start the run.
+readonly CONTAINER="$(docker-compose run --no-deps -d "${SERVICE_NAME}" $@)"
+# Attach to the container until the command is over. In the meantime share the
+# container's STDOUT and STDERR with the host.
+docker attach "${CONTAINER}"
+# Copy the folder.
+docker cp "${CONTAINER}:${SOURCE_FOLDER_IN_CONTAINER}" "${DESTINATION_FOLDER_ON_HOST}"
