@@ -3,6 +3,9 @@ FROM python:3
 # Install docker and docker-compose to build the app containers.
 RUN curl -sSL https://get.docker.com/ | sh
 
+# Install library to deal with JSON in bash scripts.
+RUN apt-get install jq
+
 # Install python libraries needed for the scripts running here.
 RUN pip install --upgrade pip && \
   pip install awscli docker-compose proselint python-keystoneclient python-swiftclient requests shyaml
