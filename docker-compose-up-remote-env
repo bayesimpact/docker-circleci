@@ -19,7 +19,7 @@ readonly GIVEN_CONTAINER_ID=$2
 if [ -n "$GIVEN_CONTAINER_ID" ]; then
   readonly CONTAINER_ID=$GIVEN_CONTAINER_ID
 else
-  readonly CONTAINER_ID=$SERVICE
+  readonly CONTAINER_ID="$SERVICE-$CIRCLE_BUILD_NUM"
 fi
 echo "Start container $CONTAINER_ID of service '$SERVICE' on the CircleCI remote docker environment"
 

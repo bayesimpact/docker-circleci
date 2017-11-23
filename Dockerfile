@@ -7,4 +7,4 @@ RUN curl -sSL https://get.docker.com/ | sh
 RUN pip install --upgrade pip && \
   pip install docker-compose proselint requests shyaml
 
-COPY docker-compose-up-remote-env stop-dockers-from-compose-up-remote-env /usr/bin/
+COPY docker-compose-up-remote-env stop-dockers-from-compose-up-remote-env get-github-repo /usr/bin/
