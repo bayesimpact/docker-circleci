@@ -17,4 +17,4 @@ RUN set -ex; \
   rm -v hub.tgz; \
   hub --version
 
-COPY docker-compose-up-remote-env stop-dockers-from-compose-up-remote-env /usr/bin/
+COPY docker-compose-up-remote-env stop-dockers-from-compose-up-remote-env get-github-repo /usr/bin/
