@@ -8,7 +8,7 @@ RUN apt-get install jq
 
 # Install python libraries needed for the scripts running here.
 RUN pip install --upgrade pip && \
-  pip install awscli awscurl docker-compose proselint python-keystoneclient python-swiftclient requests shyaml
+  pip install awscli awscurl codecov docker-compose proselint python-keystoneclient python-swiftclient requests shyaml
 
 ENV GITHUB_HUB_VERSION 2.3.0-pre8
 RUN set -ex; \
