@@ -4,7 +4,7 @@ FROM python:3
 RUN curl -sSL https://get.docker.com/ | sh
 
 # Install library to deal with JSON in bash scripts.
-RUN apt-get install jq
+RUN apt-get update -qqy && apt-get install jq -qqy
 
 # Install python libraries needed for the scripts running here.
 RUN pip install --upgrade pip && \
