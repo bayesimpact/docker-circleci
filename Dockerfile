@@ -6,6 +6,9 @@ RUN curl -sSL https://get.docker.com/ | sh
 # Install library to deal with JSON in bash scripts.
 RUN apt-get update -qqy && apt-get install jq -qqy
 
+# Install sentry-cli to send release data on deployment.
+RUN curl -sL https://sentry.io/get-cli/ | bash
+
 # Install python libraries needed for the scripts running here.
 RUN pip install --upgrade pip && \
   pip install awscli awscurl codecov docker-compose proselint python-keystoneclient python-swiftclient requests shyaml
