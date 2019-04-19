@@ -30,7 +30,7 @@ cat docker-compose.yml | shyaml get-value services.$SERVICE.volumes '' > volumes
 readonly ENTRYPOINT="$(cat docker-compose.yml | shyaml get-value services.$SERVICE.entrypoint '')"
 # Remove declared entrypoints and volumes in services.
 # The original file will be saved in docker-compose.yml.bak).
-sed -E '/^\ *(entrypoint:.*|volumes:|- \..*)\ *$/d' docker-compose.yml > docker-compose-altered-$CONTAINER_ID.yml
+sed -E '/^\ +(entrypoint:.*|volumes:|- \..*)\ *$/d' docker-compose.yml > docker-compose-altered-$CONTAINER_ID.yml
 
 echo '2. Start service without volumes and entrypoint.'
 # We run a random command (here 'ls') before running 'sleep 1000' to make sure 'sleep' doesn't get
