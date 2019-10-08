@@ -4,11 +4,14 @@ FROM python:3
 RUN curl -sSL https://get.docker.com/ | sh
 
 # Install library to deal with JSON in bash scripts.
-RUN apt-get install jq
+RUN apt -y install jq
 
 # Install python libraries needed for the scripts running here.
 RUN pip install --upgrade pip && \
   pip install awscli awscurl docker-compose proselint python-keystoneclient python-swiftclient requests shyaml
+
+# Install npm
+RUN curl -sL https://deb.nodesource.com/setup_12.x | bash && apt install -y nodejs
 
 ENV GITHUB_HUB_VERSION 2.3.0-pre8
 RUN set -ex; \
