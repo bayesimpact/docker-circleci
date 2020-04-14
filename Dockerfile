@@ -21,3 +21,4 @@ RUN set -ex; \
   hub --version
 
 COPY docker-compose-up-remote-env stop-dockers-from-compose-up-remote-env get-github-repo /usr/bin/
+COPY bin/* /usr/local/bin

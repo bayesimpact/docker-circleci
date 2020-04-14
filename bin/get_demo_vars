@@ -1,0 +1,42 @@
+#!/bin/bash
+# Specify which vars should be set on the demo run from the current build.
+#
+# Assumes that it is run in circleCI context.
+
+set -o pipefail
+
+# For test purposes.
+readonly ROOT=${1:-"origin/master"}
+
+if [[ "$CIRCLE_TAG" =~ _ACTIRIS_ ]]; then
+    echo "path=%2Factiris%2Fbilan&env=ACTIRIS_"
+    exit
+fi
+
+if [ "$CIRCLE_BRANCH" == "master" ] || [ -n "$CIRCLE_TAG" ]; then
+  # Do not put any demo vars on tags and master branch.
+  exit
+fi
+
+echo -n "repo=$CIRCLE_PROJECT_USERNAME%2F$CIRCLE_PROJECT_REPONAME&branch=$CIRCLE_PROJECT_USERNAME:$CIRCLE_BRANCH&"
+
+function is_not_actiris_pr() {
+    (! git diff --exit-code --name-only "$LAST_GREEN" "$CIRCLE_BRANCH") | grep -qv actiris &&
+    (git log --pretty=oneline "$LAST_GREEN..$CIRCLE_BRANCH" | grep -qiv actiris)
+}
+
+DEMO_ENV=`git log "--format=%B" -n 1 | grep ^DEMO_ENV_PREFIX= | sed -e "s/DEMO_ENV_PREFIX=//"`
+DEMO_PATH=$(git log "--format=%B" -n 1 | grep '^PATH=' | sed -E 's/PATH=\/?/\//')
+
+readonly LAST_GREEN="$(git merge-base "$CIRCLE_BRANCH" "$ROOT")"
+if ! is_not_actiris_pr; then
+    # There's a diff, with only actiris files in it. Let's set default path and env.
+    if [ -z "$DEMO_PATH"]; then
+        DEMO_PATH="/actiris/bilan"
+    fi
+    if [ -z "$DEMO_ENV" ]; then
+        DEMO_ENV="ACTIRIS_"
+    fi
+fi
+
+python -c "from urllib import parse;print(parse.urlencode({'path': '$DEMO_PATH', 'env': '$DEMO_ENV'}))"

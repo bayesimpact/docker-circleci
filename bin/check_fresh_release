@@ -1,0 +1,26 @@
+#!/bin/bash
+readonly BRANCH="${1:-origin/prod}"
+readonly DURATION="${2:-14 days}"
+readonly FOLDER="$3"
+readonly MASTER_BRANCH=origin/master
+
+readonly BRANCH_ROTTING_SINCE="$(git log --reverse "$BRANCH"..$MASTER_BRANCH --format=%ci -- "$FOLDER" | head -1)"
+if [[ -z "$BRANCH_ROTTING_SINCE" ]]; then
+  echo "No commits on $MASTER_BRANCH since $BRANCH."
+  exit 0
+fi
+
+readonly BRANCH_ROTTING_END="$(date -I -d "$BRANCH_ROTTING_SINCE + $DURATION")"
+if [ $? -ne 0 ]; then
+  exit 1
+fi
+
+if [ "$BRANCH_ROTTING_END" \> "$(date -I)" ]; then
+  echo "The oldest commit on $MASTER_BRANCH after $BRANCH is less than $DURATION old:"
+  echo $BRANCH_ROTTING_SINCE
+  exit 0
+fi
+
+echo "There is some unreleased code on $MASTER_BRANCH since $BRANCH_ROTTING_SINCE"
+git log --reverse "$BRANCH"..$MASTER_BRANCH -- "$FOLDER"
+exit 1
