@@ -1,0 +1,33 @@
+#!/bin/bash
+#
+# A script to check whether there was a release of the current project recently.
+# Run using check_fresh_release branch duration [folder]
+#       - branch is the name of the branch where the released version is at
+#       - duration is a `date` readable duration, for which it is admitted to have non-released code.
+#           e.g. '14 days'
+#       - folder is a subfolder of the repository to which we restrict the search of changes since release.
+readonly BRANCH="${1:-origin/prod}"
+readonly DURATION="${2:-14 days}"
+readonly FOLDER="$3"
+readonly MASTER_BRANCH=origin/master
+
+readonly BRANCH_ROTTING_SINCE="$(git log --reverse "$BRANCH"..$MASTER_BRANCH --format=%ci -- "$FOLDER" | head -1)"
+if [[ -z "$BRANCH_ROTTING_SINCE" ]]; then
+  echo "No commits on $MASTER_BRANCH since $BRANCH."
+  exit 0
+fi
+
+readonly BRANCH_ROTTING_END="$(date -I -d "$BRANCH_ROTTING_SINCE + $DURATION")"
+if [ $? -ne 0 ]; then
+  exit 1
+fi
+
+if [ "$BRANCH_ROTTING_END" \> "$(date -I)" ]; then
+  echo "The oldest commit on $MASTER_BRANCH after $BRANCH is less than $DURATION old:"
+  echo $BRANCH_ROTTING_SINCE
+  exit 0
+fi
+
+echo "There is some unreleased code on $MASTER_BRANCH since $BRANCH_ROTTING_SINCE"
+git log --reverse "$BRANCH"..$MASTER_BRANCH -- "$FOLDER"
+exit 1

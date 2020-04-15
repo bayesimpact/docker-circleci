@@ -1,0 +1,17 @@
+version: 2
+jobs:
+  test:
+
+steps:
+  - checkout
+  - setup_remote_docker:
+    reusable: true
+  - run:
+    name: Test the demo vars script
+    command: bash test/test_get_demo_vars.sh
+
+workflows:
+  version: 2
+  test:
+    jobs:
+      - test
