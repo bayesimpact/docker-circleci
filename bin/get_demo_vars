@@ -1,0 +1,25 @@
+#!/bin/bash
+# Specify which vars should be set on the demo run from the current build.
+#
+# Assumes that it is run in circleCI context.
+# Example output: repo=bayes%2Fbob&branch=bayes:some-branch&path=&env=
+# TODO(cyrille): Add conf about specific rules.
+
+set -o pipefail
+
+# For test purposes.
+readonly ROOT=${1:-"origin/master"}
+
+if [ "$CIRCLE_BRANCH" == "master" ] || [ -n "$CIRCLE_TAG" ]; then
+  # Do not put any demo vars on tags and master branch.
+  exit
+fi
+
+echo -n "repo=$CIRCLE_PROJECT_USERNAME%2F$CIRCLE_PROJECT_REPONAME&branch=$CIRCLE_PROJECT_USERNAME:$CIRCLE_BRANCH&"
+
+DEMO_ENV=`git log "--format=%B" -n 1 | grep ^DEMO_ENV_PREFIX= | sed -e "s/DEMO_ENV_PREFIX=//"`
+DEMO_PATH=$(git log "--format=%B" -n 1 | grep '^PATH=' | sed -E 's/PATH=\/?/\//')
+
+readonly LAST_GREEN="$(git merge-base "$CIRCLE_BRANCH" "$ROOT")"
+
+python -c "from urllib import parse;print(parse.urlencode({'path': '$DEMO_PATH', 'env': '$DEMO_ENV'}))"

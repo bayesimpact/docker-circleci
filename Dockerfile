@@ -33,3 +33,4 @@ RUN curl https://dl.google.com/dl/cloudsdk/release/google-cloud-sdk.tar.gz > /tm
 ENV PATH $PATH:/usr/local/gcloud/google-cloud-sdk/bin
 
 COPY docker-compose-up-remote-env stop-dockers-from-compose-up-remote-env get-github-repo /usr/bin/
+COPY bin/* /usr/local/bin
