@@ -11,7 +11,7 @@ RUN curl -sL https://sentry.io/get-cli/ | bash
 
 # Install python libraries needed for the scripts running here.
 RUN pip install --upgrade pip && \
-  pip install awscli awscurl codecov docker-compose proselint python-keystoneclient python-swiftclient requests shyaml
+  pip install awscli awscurl codecov docker-compose proselint python-keystoneclient python-swiftclient requests shyaml yamllint
 
 # Install npm
 RUN curl -sL https://deb.nodesource.com/setup_12.x | bash && apt install -qqy nodejs
