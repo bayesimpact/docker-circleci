@@ -40,7 +40,7 @@ else
         sed -i -e "s/^\([^:]*\):/<${URL_TO_FILE//\//\\/}\1|\1>:/" "$TODOS_ADDED"
         python3 -c "import json
 todos_added = open('$TODOS_ADDED', 'r').read()
-slack_message = {'text': 'TODOs modifications since $PAST.\n$NUM_REMOVED TODOs removed\n$NUM_ADDED TODOs added:\n' + todos_added}
+slack_message = {'text': '${CIRCLE_PROJECT_USERNAME:-bayesimpact}/${CIRCLE_PROJECT_REPONAME:-bob-emploi-internal} TODOs modifications since $PAST.\n$NUM_REMOVED TODOs removed\n$NUM_ADDED TODOs added:\n' + todos_added}
 with open('$SLACK_MESSAGE', 'w') as slack_message_file:
   json.dump(slack_message, slack_message_file)"
         wget -o /dev/null -O /dev/null --post-file=$SLACK_MESSAGE "$SLACK_INTEGRATION_URL"
