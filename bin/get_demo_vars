@@ -10,12 +10,18 @@ set -o pipefail
 # For test purposes.
 readonly ROOT=${1:-"origin/master"}
 
-if [ "$CIRCLE_BRANCH" == "master" ] || [ -n "$CIRCLE_TAG" ]; then
-  # Do not put any demo vars on tags and master branch.
+if [ "$CIRCLE_BRANCH" == "master" ]; then
+  # Do not put any demo vars on master branch.
+  exit
+fi
+echo -n "repo=$CIRCLE_PROJECT_USERNAME%2F$CIRCLE_PROJECT_REPONAME&"
+if [ "$CIRCLE_TAG" ]; then
+  echo "release=$CIRCLE_WORKFLOW_ID"
+  # Specify a repo, and a release ID.
   exit
 fi
 
-echo -n "repo=$CIRCLE_PROJECT_USERNAME%2F$CIRCLE_PROJECT_REPONAME&branch=$CIRCLE_PROJECT_USERNAME:$CIRCLE_BRANCH&"
+echo -n "branch=$CIRCLE_PROJECT_USERNAME:$CIRCLE_BRANCH&"
 
 DEMO_ENV=`git log "--format=%B" -n 1 | grep ^DEMO_ENV_PREFIX= | sed -e "s/DEMO_ENV_PREFIX=//"`
 DEMO_PATH=$(git log "--format=%B" -n 1 | grep '^PATH=' | sed -E 's/PATH=\/?/\//')
