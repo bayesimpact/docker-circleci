@@ -10,8 +10,17 @@ set -o pipefail
 # For test purposes.
 readonly ROOT=${1:-"origin/master"}
 
-if [ "$CIRCLE_BRANCH" == "master" ] || [ -n "$CIRCLE_TAG" ]; then
-  # Do not put any demo vars on tags and master branch.
+if [ "$CIRCLE_BRANCH" == "master" ]; then
+  # Do not put any demo vars on master branch.
+  exit
+fi
+if [ "$CIRCLE_TAG" ]; then
+  # Specify a repo, a release tag, and a callback to the current workflow, for manual release.
+  python -c "from urllib.parse import urlencode; print(urlencode({
+    'release': '$CIRCLE_TAG',
+    'release_callback': 'https://circleci.com/workflow-run/$CIRCLE_WORKFLOW_ID',
+    'repo': '$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME',
+  }))"
   exit
 fi
 
