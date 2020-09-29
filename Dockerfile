@@ -4,7 +4,8 @@ FROM python:3
 RUN curl -sSL https://get.docker.com/ | sh
 
 # Install library to deal with JSON in bash scripts.
-RUN apt update -qqy && apt install jq -qqy
+# Install a shell checker.
+RUN apt update -qqy && apt install jq shellcheck -qqy
 
 # Install sentry-cli to send release data on deployment.
 RUN curl -sL https://sentry.io/get-cli/ | bash
