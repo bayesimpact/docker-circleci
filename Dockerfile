@@ -11,8 +11,9 @@ RUN apt update -qqy && apt install jq shellcheck -qqy
 RUN curl -sL https://sentry.io/get-cli/ | bash
 
 # Install python libraries needed for the scripts running here.
+COPY requirements.txt /usr/share
 RUN pip install --upgrade pip && \
-  pip install awscli awscurl codecov docker-compose proselint python-keystoneclient python-swiftclient requests shyaml yamllint
+  pip install -r /usr/share/requirements.txt
 
 # Install npm
 RUN curl -sL https://deb.nodesource.com/setup_12.x | bash && apt install -qqy nodejs

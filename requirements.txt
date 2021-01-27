@@ -1,0 +1,10 @@
+awscli>=1.18.220
+awscurl
+codecov
+docker-compose
+proselint
+python-keystoneclient
+python-swiftclient
+requests
+shyaml
+yamllint
