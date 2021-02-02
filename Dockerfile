@@ -1,11 +1,8 @@
-FROM python:3
+# Base image from CircleCI. Contains python 3.8, node, jq, docker, docker-compose
+FROM cimg/python:3.8-node
 
-# Install docker and docker-compose to build the app containers.
-RUN curl -sSL https://get.docker.com/ | sh
-
-# Install library to deal with JSON in bash scripts.
 # Install a shell checker.
-RUN apt update -qqy && apt install jq shellcheck -qqy
+RUN apt update -qqy && apt install shellcheck -qqy
 
 # Install sentry-cli to send release data on deployment.
 RUN curl -sL https://sentry.io/get-cli/ | bash
@@ -14,9 +11,6 @@ RUN curl -sL https://sentry.io/get-cli/ | bash
 COPY requirements.txt /usr/share
 RUN pip install --upgrade pip && \
   pip install -r /usr/share/requirements.txt
-
-# Install npm
-RUN curl -sL https://deb.nodesource.com/setup_12.x | bash && apt install -qqy nodejs
 
 ENV GITHUB_HUB_VERSION 2.3.0-pre8
 RUN set -ex; \
