@@ -1,10 +1,9 @@
 awscli>=1.18.220
 awscurl
 codecov
-docker-compose
-proselint
 python-keystoneclient
 python-swiftclient
 requests
+# TODO(cyrille): Make sure we actually use this somewhere, or drop.
 shyaml
 yamllint
