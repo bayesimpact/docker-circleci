@@ -7,6 +7,7 @@
 
 readonly DURATION="${1:-7 days}"
 readonly FOLDER="$2"
+readonly DEFAULT_BRANCH="$(git rev-parse --abbrev-ref "origin/HEAD" | cut -d/ -f2)"
 
 readonly PAST="$(date -I -d "-$DURATION")"
 readonly PAST_COMMIT="$(git log --before "$PAST" --format=%h -1 $FOLDER)"
@@ -37,7 +38,7 @@ else
 
     if [ -n "$SLACK_INTEGRATION_URL" ]; then
         readonly SLACK_MESSAGE="$(mktemp)"
-        readonly URL_TO_FILE="https://github.com/${CIRCLE_PROJECT_USERNAME:-bayesimpact}/${CIRCLE_PROJECT_REPONAME:-bob-emploi-internal}/blob/${CIRCLE_SHA1:-master}/"
+        readonly URL_TO_FILE="https://github.com/${CIRCLE_PROJECT_USERNAME:-bayesimpact}/${CIRCLE_PROJECT_REPONAME:-bob-emploi-internal}/blob/${CIRCLE_SHA1:-$DEFAULT_BRANCH}/"
         sed -i -e "s/^\([^:]*\):/<${URL_TO_FILE//\//\\/}\1|\1>:/" "$TODOS_ADDED"
         python3 -c "import json
 todos_added = open('$TODOS_ADDED', 'r').read()
