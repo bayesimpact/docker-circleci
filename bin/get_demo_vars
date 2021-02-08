@@ -8,10 +8,10 @@
 set -o pipefail
 
 # For test purposes.
-readonly ROOT=${1:-"origin/master"}
+readonly ROOT=${1:-"$(git rev-parse --abbrev-ref "$REMOTE/HEAD")"}
 
-if [ "$CIRCLE_BRANCH" == "master" ]; then
-  # Do not put any demo vars on master branch.
+if is_origin_default; then
+  # Do not put any demo vars on default branch.
   exit
 fi
 if [ "$CIRCLE_TAG" ]; then
