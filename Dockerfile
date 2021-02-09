@@ -1,5 +1,6 @@
 # Base image from CircleCI. Contains python 3.8, node, jq, docker, docker-compose
 FROM cimg/python:3.8-node
+USER root
 
 # Install a shell checker.
 RUN apt update -qqy && apt install shellcheck -qqy
