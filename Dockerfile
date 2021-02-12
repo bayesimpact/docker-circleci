@@ -2,12 +2,6 @@
 FROM cimg/python:3.8-node
 USER root
 
-# Install a shell checker.
-RUN apt update -qqy && apt install shellcheck -qqy
-
-# Install sentry-cli to send release data on deployment.
-RUN curl -sL https://sentry.io/get-cli/ | bash
-
 # Install python libraries needed for the scripts running here.
 COPY requirements.txt /usr/share
 RUN pip install --upgrade pip && \
