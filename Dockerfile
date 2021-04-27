@@ -7,7 +7,7 @@ COPY requirements.txt /usr/share
 RUN pip install --upgrade pip && \
   pip install -r /usr/share/requirements.txt
 
-ENV GITHUB_HUB_VERSION 2.3.0-pre8
+ENV GITHUB_HUB_VERSION 2.8.3
 RUN set -ex; \
   wget -O hub.tgz "https://github.com/github/hub/releases/download/v${GITHUB_HUB_VERSION}/hub-linux-amd64-${GITHUB_HUB_VERSION}.tgz"; \
   tar -xvf hub.tgz --strip-components 1 -C /usr/local; \
