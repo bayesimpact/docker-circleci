@@ -5,7 +5,10 @@ USER root
 # Install python libraries needed for the scripts running here.
 COPY requirements.txt /usr/share
 RUN pip install --upgrade pip && \
-  pip install -r /usr/share/requirements.txt
+  pip install -r /usr/share/requirements.txt && \
+  # Install commit message hook from bayes-developer-setup.
+  wget -o /usr/local/bin/check-commit-msg https://raw.githubusercontent.com/bayesimpact/bayes-developer-setup/master/hooks/commit-msg && \
+  chmod +x /usr/local/bin/check-commit-msg
 
 ENV GITHUB_HUB_VERSION 2.8.3
 RUN set -ex; \
