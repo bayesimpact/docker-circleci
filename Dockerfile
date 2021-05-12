@@ -9,6 +9,7 @@ RUN pip install --upgrade pip && \
 # Use root user to install binaries.
 USER root
 ENV GITHUB_HUB_VERSION 2.14.2
+ARG BAYES_DEV_SETUP_TAG=2021-05-12
 
 RUN wget -o /dev/null -O hub.tgz "https://github.com/github/hub/releases/download/v${GITHUB_HUB_VERSION}/hub-linux-amd64-${GITHUB_HUB_VERSION}.tgz"; \
   mkdir hub_dir; \
@@ -17,7 +18,10 @@ RUN wget -o /dev/null -O hub.tgz "https://github.com/github/hub/releases/downloa
   rm -v hub.tgz; \
   rm -r hub_dir; \
   hub --version; \
-  npm i -g json5
+  npm i -g json5; \
+  # Install commit message hook from bayes-developer-setup.
+  wget -O /usr/local/bin/check-commit-msg "https://raw.githubusercontent.com/bayesimpact/bayes-developer-setup/${BAYES_DEV_SETUP_TAG}/hooks/commit-msg" && \
+  chmod +x /usr/local/bin/check-commit-msg
 
 # Install gcloud package
 RUN curl https://dl.google.com/dl/cloudsdk/release/google-cloud-sdk.tar.gz > /tmp/google-cloud-sdk.tar.gz && \
