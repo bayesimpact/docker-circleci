@@ -16,7 +16,8 @@ RUN wget -o /dev/null -O hub.tgz "https://github.com/github/hub/releases/downloa
   hub_dir/install; \
   rm -v hub.tgz; \
   rm -r hub_dir; \
-  hub --version
+  hub --version; \
+  npm i -g json5
 
 # Install gcloud package
 RUN curl https://dl.google.com/dl/cloudsdk/release/google-cloud-sdk.tar.gz > /tmp/google-cloud-sdk.tar.gz && \
