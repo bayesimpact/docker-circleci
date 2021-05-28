@@ -24,7 +24,7 @@ readonly NUM_REMOVED="$(cat "$PAST_TODOS_FILE" "$RECENT_TODOS_FILE" "$RECENT_TOD
 
 readonly TODOS_ADDED="$(mktemp)"
 cat "$PAST_TODOS_FILE" "$PAST_TODOS_FILE" "$RECENT_TODOS_FILE" | sort | uniq -u \
-    | sed -e "s/TODO\((.*)\)\?: \?\(.*\)$/TODO\1: *\2*/" \
+    | sed -e 's/\W*TODO\((.*)\)\?: \?\(.*\)$/\\\n  TODO\1: *\2*/' \
     | cut -c -100 \
     > "$TODOS_ADDED"
 readonly NUM_ADDED="$(cat "$TODOS_ADDED" | wc -l)"
