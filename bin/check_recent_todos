@@ -1,53 +1,81 @@
-#!/bin/bash
-#
-# Check TODOs that have been added or deleted for a given duration on the repo.
-# Run using check_recent_todos duration [folder]
-#       duration is a `date`-readable duration, e.g. '7 days' (default)
-#       folder is a subfolder of the current repo in which we look for the TODOs.
+#!/usr/bin/env python3
+"""
+Check TODOs that have been added or deleted for a given duration on the repo.
+Run using check_recent_todos duration [folder]
+      duration is a `git log`-readable duration, e.g. '7 days' (default)
+      folder is a subfolder of the current repo in which we look for the TODOs.
+"""
 
-readonly DURATION="${1:-7 days}"
-readonly FOLDER="$2"
-readonly DEFAULT_BRANCH="$(git rev-parse --abbrev-ref "origin/HEAD" | cut -d/ -f2)"
+import os
+import re
+import subprocess
+import sys
+from typing import Dict, List
 
-readonly PAST="$(date -I -d "-$DURATION")"
-readonly PAST_COMMIT="$(git log --before "$PAST" --format=%h -1 $FOLDER)"
+import requests
 
-readonly RECENT_TODOS_FILE="$(mktemp)"
-grep \\bTODO\\b -r $FOLDER > "$RECENT_TODOS_FILE"
 
-readonly PAST_TODOS_FILE="$(mktemp)"
-git checkout -q "$PAST_COMMIT"
-grep \\bTODO\\b -r $FOLDER > "$PAST_TODOS_FILE"
-git checkout -q -
+def _run_git(git_command: List[str]) -> str:
+    return subprocess.check_output(['git'] + git_command, text=True).strip()
 
-readonly NUM_REMOVED="$(cat "$PAST_TODOS_FILE" "$RECENT_TODOS_FILE" "$RECENT_TODOS_FILE" | sort | uniq -u | wc -l)"
 
-readonly TODOS_ADDED="$(mktemp)"
-cat "$PAST_TODOS_FILE" "$PAST_TODOS_FILE" "$RECENT_TODOS_FILE" | sort | uniq -u \
-    | sed -e "s/TODO\((.*)\)\?: \?\(.*\)$/TODO\1: *\2*/" \
-    | cut -c -100 \
-    > "$TODOS_ADDED"
-readonly NUM_ADDED="$(cat "$TODOS_ADDED" | wc -l)"
+def _grep_all_todos(folder: str) -> List[str]:
+    return subprocess.check_output(['grep', r'\bTODO\b', '-r', folder], text=True).split('\n')
 
-if [ "$NUM_REMOVED" == "0" ] && [ "$NUM_ADDED" == "0" ]; then
-    echo "No changes in TODOs."
-else
-    echo "$NUM_REMOVED TODOs removed."
-    echo "$NUM_ADDED TODOs added:"
-    cat "$TODOS_ADDED"
 
-    if [ -n "$SLACK_INTEGRATION_URL" ]; then
-        readonly SLACK_MESSAGE="$(mktemp)"
-        readonly URL_TO_FILE="https://github.com/${CIRCLE_PROJECT_USERNAME:-bayesimpact}/${CIRCLE_PROJECT_REPONAME:-bob-emploi-internal}/blob/${CIRCLE_SHA1:-$DEFAULT_BRANCH}/"
-        sed -i -e "s/^\([^:]*\):/<${URL_TO_FILE//\//\\/}\1|\1>:/" "$TODOS_ADDED"
-        python3 -c "import json
-todos_added = open('$TODOS_ADDED', 'r').read()
-slack_message = {'text': '${CIRCLE_PROJECT_USERNAME:-bayesimpact}/${CIRCLE_PROJECT_REPONAME:-bob-emploi-internal} TODOs modifications since $PAST.\n$NUM_REMOVED TODOs removed\n$NUM_ADDED TODOs added:\n' + todos_added}
-with open('$SLACK_MESSAGE', 'w') as slack_message_file:
-  json.dump(slack_message, slack_message_file)"
-        wget -o /dev/null -O /dev/null --post-file=$SLACK_MESSAGE "$SLACK_INTEGRATION_URL"
-        rm -f "$SLACK_MESSAGE"
-    fi
-fi
+_TODO_FILE_REGEX = re.compile(r'^([^:]*):')
 
-rm -f "$PAST_TODOS_FILE" "$RECENT_TODOS_FILE" "$TODOS_ADDED"
+_SLACK_INTEGRATION_URL = os.getenv('SLACK_INTEGRATION_URL')
+_PROJECT_USERNAME = os.getenv('CIRCLE_PROJECT_USERNAME', 'bayesimpact')
+_PROJECT_REPONAME = os.getenv('CIRCLE_PROJECT_REPONAME', 'bob-emploi-internal')
+_GIT_SHA1 = os.getenv('CIRCLE_SHA1') or _run_git(['rev-parse', 'HEAD'])
+
+
+def _make_message(new_todos: List[str], closed_todos_count: int) -> str:
+    """Create a message that will be shown about the TODO diff."""
+
+    message_lines: List[str] = []
+    if closed_todos_count or new_todos:
+        message_lines.extend([
+            f'Removed {closed_todos_count} TODOs',
+            f'Added {len(new_todos)} TODOs:'])
+    else:
+        message_lines.append('No changes in TODOs.')
+    return '\n'.join(message_lines + new_todos)
+
+
+def _make_slack_message(new_todos: List[str], closed_todos_count: int, duration : str) \
+        -> Dict[str, str]:
+    """Create a message that will be sent to slack about the TODO diff."""
+
+    url_to_file = f'https://github.com/{_PROJECT_USERNAME}/{_PROJECT_REPONAME}/blob/{_GIT_SHA1}/'
+    todos_added = '\n'.join(
+        _TODO_FILE_REGEX.sub(fr'<{url_to_file}\1|\1>:', line) for line in new_todos)
+    return {
+        'text': f'{_PROJECT_USERNAME}/{_PROJECT_REPONAME} TODOs modifications since {duration}.\n'
+        f'{closed_todos_count} TODOs removed\n{len(new_todos)} TODOs added:\n' + todos_added,
+        'channel': '@cyrille',
+    }
+
+
+def main(duration: str = '7 days', folder: str = '.') -> None:
+    """Compare previous TODOs from current branch's."""
+
+    last_checked_commit = _run_git(['log', '--before', duration, '--format=%h', '-1', folder])
+    recent_todos = _grep_all_todos(folder)
+    _run_git(['checkout', last_checked_commit])
+    old_todos = _grep_all_todos(folder)
+    _run_git(['checkout', '-'])
+    new_todos = [todo for todo in recent_todos if todo not in old_todos]
+    closed_todos_count = sum(1 for todo in old_todos if todo not in recent_todos)
+    message = _make_message(new_todos, closed_todos_count)
+    print(message)
+    if _SLACK_INTEGRATION_URL:
+        requests.post(
+            _SLACK_INTEGRATION_URL,
+            json=_make_slack_message(new_todos, closed_todos_count, duration))
+
+
+if __name__ == '__main__':
+    # TODO(cyrille): Replace with argparse.
+    main(*sys.argv[1:])
