@@ -10,7 +10,7 @@ import os
 import re
 import subprocess
 import sys
-from typing import Dict, List
+from typing import Any, Dict, List, NamedTuple, Optional
 
 import requests
 
@@ -20,10 +20,11 @@ def _run_git(git_command: List[str]) -> str:
 
 
 def _grep_all_todos(folder: str) -> List[str]:
-    return subprocess.check_output(['grep', r'\bTODO\b', '-r', folder], text=True).split('\n')
+    return subprocess.check_output(['grep', r'\bTODO\b', '-nr', folder], text=True).split('\n')
 
 
 _TODO_FILE_REGEX = re.compile(r'^([^:]*):')
+_TODO_LINE_REGEX = re.compile(r'\bTODO\b(?:\(([^)]+)\))?:?\s*(.*)')
 
 _SLACK_INTEGRATION_URL = os.getenv('SLACK_INTEGRATION_URL')
 _PROJECT_USERNAME = os.getenv('CIRCLE_PROJECT_USERNAME', 'bayesimpact')
@@ -31,7 +32,41 @@ _PROJECT_REPONAME = os.getenv('CIRCLE_PROJECT_REPONAME', 'bob-emploi-internal')
 _GIT_SHA1 = os.getenv('CIRCLE_SHA1') or _run_git(['rev-parse', 'HEAD'])
 
 
-def _make_message(new_todos: List[str], closed_todos_count: int) -> str:
+class _TodoRef(NamedTuple):
+    file: str
+    line: int
+    text: str
+    owner: Optional[str] = None
+
+    @staticmethod
+    def parse_line(todo_line: str) -> '_TodoRef':
+        """Parse a line from grep result to a _TodoRef."""
+
+        file, line_str, full_text = todo_line.split(':', 2)
+        owner: Optional[str] = None
+        text = full_text
+        match = _TODO_LINE_REGEX.search(full_text)
+        if match:
+            owner, text = match.groups()
+        return _TodoRef(file, int(line_str), text, owner)
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, _TodoRef):
+            return False
+        return self.file == other.file and self.text == other.text
+
+    def __str__(self) -> str:
+        owner_text = f'{self.owner}: ' if self.owner else ''
+        return f'{self.file}#L{self.line}: {owner_text}{self.text}'
+
+
+def _grep_and_parse_all_todos(folder: str) -> List[_TodoRef]:
+    return [
+        _TodoRef.parse_line(todo_line) for todo_line in _grep_all_todos(folder)
+        if todo_line]
+
+
+def _make_message(new_todos: List[_TodoRef], closed_todos_count: int) -> str:
     """Create a message that will be shown about the TODO diff."""
 
     message_lines: List[str] = []
@@ -41,16 +76,16 @@ def _make_message(new_todos: List[str], closed_todos_count: int) -> str:
             f'Added {len(new_todos)} TODOs:'])
     else:
         message_lines.append('No changes in TODOs.')
-    return '\n'.join(message_lines + new_todos)
+    return '\n'.join(message_lines + [str(todo) for todo in new_todos])
 
 
-def _make_slack_message(new_todos: List[str], closed_todos_count: int, duration : str) \
+def _make_slack_message(new_todos: List[_TodoRef], closed_todos_count: int, duration : str) \
         -> Dict[str, str]:
     """Create a message that will be sent to slack about the TODO diff."""
 
     url_to_file = f'https://github.com/{_PROJECT_USERNAME}/{_PROJECT_REPONAME}/blob/{_GIT_SHA1}/'
     todos_added = '\n'.join(
-        _TODO_FILE_REGEX.sub(fr'<{url_to_file}\1|\1>:', line) for line in new_todos)
+        _TODO_FILE_REGEX.sub(fr'<{url_to_file}\1|\1>:', str(line)) for line in new_todos)
     return {
         'text': f'{_PROJECT_USERNAME}/{_PROJECT_REPONAME} TODOs modifications since {duration}.\n'
         f'{closed_todos_count} TODOs removed\n{len(new_todos)} TODOs added:\n' + todos_added,
@@ -62,9 +97,9 @@ def main(duration: str = '7 days', folder: str = '.') -> None:
     """Compare previous TODOs from current branch's."""
 
     last_checked_commit = _run_git(['log', '--before', duration, '--format=%h', '-1', folder])
-    recent_todos = _grep_all_todos(folder)
+    recent_todos = _grep_and_parse_all_todos(folder)
     _run_git(['checkout', last_checked_commit])
-    old_todos = _grep_all_todos(folder)
+    old_todos = _grep_and_parse_all_todos(folder)
     _run_git(['checkout', '-'])
     new_todos = [todo for todo in recent_todos if todo not in old_todos]
     closed_todos_count = sum(1 for todo in old_todos if todo not in recent_todos)
