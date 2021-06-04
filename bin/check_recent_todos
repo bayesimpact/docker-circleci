@@ -6,11 +6,13 @@ Run using check_recent_todos duration [folder]
       folder is a subfolder of the current repo in which we look for the TODOs.
 """
 
+import logging
 import os
 import re
 import subprocess
 import sys
-from typing import Any, Dict, List, NamedTuple, Optional
+import typing
+from typing import Any, Dict, Iterator, List, Optional
 
 import requests
 
@@ -32,17 +34,23 @@ _PROJECT_REPONAME = os.getenv('CIRCLE_PROJECT_REPONAME', 'bob-emploi-internal')
 _GIT_SHA1 = os.getenv('CIRCLE_SHA1') or _run_git(['rev-parse', 'HEAD'])
 
 
-class _TodoRef(NamedTuple):
+class _TodoRef(typing.NamedTuple):
     file: str
     line: int
     text: str
     owner: Optional[str] = None
 
     @staticmethod
-    def parse_line(todo_line: str) -> '_TodoRef':
+    def parse_line(todo_line: str) -> Optional['_TodoRef']:
         """Parse a line from grep result to a _TodoRef."""
 
-        file, line_str, full_text = todo_line.split(':', 2)
+        if not todo_line:
+            return None
+        try:
+            file, line_str, full_text = todo_line.split(':', 2)
+        except ValueError:
+            logging.error('Unable to split line:\n%r', todo_line)
+            return None
         owner: Optional[str] = None
         text = full_text
         match = _TODO_LINE_REGEX.search(full_text)
@@ -60,10 +68,12 @@ class _TodoRef(NamedTuple):
         return f'{self.file}#L{self.line}: {owner_text}{self.text}'
 
 
-def _grep_and_parse_all_todos(folder: str) -> List[_TodoRef]:
-    return [
-        _TodoRef.parse_line(todo_line) for todo_line in _grep_all_todos(folder)
-        if todo_line]
+def _grep_and_parse_all_todos(folder: str) -> Iterator[_TodoRef]:
+    for todo_line in _grep_all_todos(folder):
+        if not todo_line.strip():
+            continue
+        if line := _TodoRef.parse_line(todo_line):
+            yield line
 
 
 def _make_message(new_todos: List[_TodoRef], closed_todos_count: int) -> str:
@@ -89,7 +99,6 @@ def _make_slack_message(new_todos: List[_TodoRef], closed_todos_count: int, dura
     return {
         'text': f'{_PROJECT_USERNAME}/{_PROJECT_REPONAME} TODOs modifications since {duration}.\n'
         f'{closed_todos_count} TODOs removed\n{len(new_todos)} TODOs added:\n' + todos_added,
-        'channel': '@cyrille',
     }
 
 
@@ -97,9 +106,9 @@ def main(duration: str = '7 days', folder: str = '.') -> None:
     """Compare previous TODOs from current branch's."""
 
     last_checked_commit = _run_git(['log', '--before', duration, '--format=%h', '-1', folder])
-    recent_todos = _grep_and_parse_all_todos(folder)
+    recent_todos = list(_grep_and_parse_all_todos(folder))
     _run_git(['checkout', last_checked_commit])
-    old_todos = _grep_and_parse_all_todos(folder)
+    old_todos = list(_grep_and_parse_all_todos(folder))
     _run_git(['checkout', '-'])
     new_todos = [todo for todo in recent_todos if todo not in old_todos]
     closed_todos_count = sum(1 for todo in old_todos if todo not in recent_todos)
