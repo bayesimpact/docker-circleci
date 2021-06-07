@@ -107,7 +107,7 @@ def main(duration: str = '7 days', folder: str = '.') -> None:
 
     last_checked_commit = _run_git(['log', '--before', duration, '--format=%h', '-1', folder])
     recent_todos = list(_grep_and_parse_all_todos(folder))
-    _run_git(['checkout', last_checked_commit])
+    _run_git(['-c', 'advice.detachedHead=false', 'checkout', last_checked_commit])
     old_todos = list(_grep_and_parse_all_todos(folder))
     _run_git(['checkout', '-'])
     new_todos = [todo for todo in recent_todos if todo not in old_todos]
