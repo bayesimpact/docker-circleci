@@ -22,7 +22,7 @@ def _run_git(git_command: List[str]) -> str:
 
 
 def _grep_all_todos(folder: str) -> List[str]:
-    return subprocess.check_output(['grep', r'\bTODO\b', '-nr', folder], text=True).split('\n')
+    return subprocess.check_output(['grep', r'\bTODO\b', '-nrI', folder], text=True).split('\n')
 
 
 _TODO_FILE_REGEX = re.compile(r'^([^:]*):')
