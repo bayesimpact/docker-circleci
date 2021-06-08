@@ -69,7 +69,10 @@ class _TodoRef(typing.NamedTuple):
 
 
 def _grep_and_parse_all_todos(folder: str) -> Iterator[_TodoRef]:
+    useless_folder_prefix = f'./'
     for todo_line in _grep_all_todos(folder):
+        if todo_line.startswith(useless_folder_prefix):
+            todo_line = todo_line[len(useless_folder_prefix):]
         if not todo_line.strip():
             continue
         if line := _TodoRef.parse_line(todo_line):
