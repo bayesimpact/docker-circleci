@@ -32,6 +32,7 @@ _SLACK_INTEGRATION_URL = os.getenv('SLACK_INTEGRATION_URL')
 _PROJECT_USERNAME = os.getenv('CIRCLE_PROJECT_USERNAME', 'bayesimpact')
 _PROJECT_REPONAME = os.getenv('CIRCLE_PROJECT_REPONAME', 'bob-emploi-internal')
 _GIT_SHA1 = os.getenv('CIRCLE_SHA1') or _run_git(['rev-parse', 'HEAD'])
+_IS_TTY = sys.stdout.isatty()
 
 
 class _TodoRef(typing.NamedTuple):
@@ -67,6 +68,18 @@ class _TodoRef(typing.NamedTuple):
         owner_text = f'{self.owner}: ' if self.owner else ''
         return f'{self.file}#L{self.line}: {owner_text}{self.text}'
 
+    def format_for_tty(self) -> str:
+        """Format the _TodoRef with colors if it's in a terminal."""
+
+        if not _IS_TTY:
+            return str(self)
+
+        owner_text = f'{self.owner}: ' if self.owner else ''
+        return (
+            f'{self.file}\x1b[38;5;243m#\x1b[mL{self.line}\x1b[m: '
+            f'\x1b[38;5;38m{owner_text}\x1b[38;5;2m{self.text}\x1b[m'
+        )
+
 
 def _grep_and_parse_all_todos(folder: str) -> Iterator[_TodoRef]:
     for todo_line in _grep_all_todos(folder):
@@ -86,7 +99,7 @@ def _make_message(new_todos: List[_TodoRef], closed_todos_count: int) -> str:
             f'Added {len(new_todos)} TODOs:'])
     else:
         message_lines.append('No changes in TODOs.')
-    return '\n'.join(message_lines + [str(todo) for todo in new_todos])
+    return '\n'.join(message_lines + [todo.format_for_tty() for todo in new_todos])
 
 
 def _make_slack_message(new_todos: List[_TodoRef], closed_todos_count: int, duration : str) \
