@@ -6,8 +6,10 @@ Run using check_recent_todos duration [folder]
       folder is a subfolder of the current repo in which we look for the TODOs.
 """
 
+import functools
 import logging
 import os
+from os import path
 import re
 import subprocess
 import sys
@@ -33,6 +35,12 @@ _PROJECT_USERNAME = os.getenv('CIRCLE_PROJECT_USERNAME', 'bayesimpact')
 _PROJECT_REPONAME = os.getenv('CIRCLE_PROJECT_REPONAME', 'bob-emploi-internal')
 _GIT_SHA1 = os.getenv('CIRCLE_SHA1') or _run_git(['rev-parse', 'HEAD'])
 _IS_TTY = sys.stdout.isatty()
+_URL_TO_FILE = f'https://github.com/{_PROJECT_USERNAME}/{_PROJECT_REPONAME}/blob/{_GIT_SHA1}/'
+
+
+@functools.lru_cache()
+def _get_repo_root() -> str:
+    return _run_git(['rev-parse', '--show-toplevel'])
 
 
 class _TodoRef(typing.NamedTuple):
@@ -80,9 +88,15 @@ class _TodoRef(typing.NamedTuple):
             f'\x1b[38;5;38m{owner_text}\x1b[38;5;2m{self.text}\x1b[m'
         )
 
+    def format_for_slack(self) -> str:
+        """Format the _TodoRef for slack output."""
+        owner_text = f'{self.owner}: ' if self.owner else ''
+        return f'<{_URL_TO_FILE}{path.relpath(self.file, start=_get_repo_root())}#L{self.line}' + \
+            f'|{self.file}:{self.line}>: {owner_text}{self.text}'
+
 
 def _grep_and_parse_all_todos(folder: str) -> Iterator[_TodoRef]:
-    useless_folder_prefix = f'./'
+    useless_folder_prefix = './'
     for todo_line in _grep_all_todos(folder):
         if todo_line.startswith(useless_folder_prefix):
             todo_line = todo_line[len(useless_folder_prefix):]
@@ -105,13 +119,11 @@ def _make_message(new_todos: List[_TodoRef], closed_todos_count: int) -> str:
     return '\n'.join(message_lines + [todo.format_for_tty() for todo in new_todos])
 
 
-def _make_slack_message(new_todos: List[_TodoRef], closed_todos_count: int, duration : str) \
+def _make_slack_message(new_todos: List[_TodoRef], closed_todos_count: int, duration: str) \
         -> Dict[str, str]:
     """Create a message that will be sent to slack about the TODO diff."""
 
-    url_to_file = f'https://github.com/{_PROJECT_USERNAME}/{_PROJECT_REPONAME}/blob/{_GIT_SHA1}/'
-    todos_added = '\n'.join(
-        _TODO_FILE_REGEX.sub(fr'<{url_to_file}\1|\1>:', str(line)) for line in new_todos)
+    todos_added = '\n'.join(todo.format_for_slack() for todo in new_todos)
     return {
         'text': f'{_PROJECT_USERNAME}/{_PROJECT_REPONAME} TODOs modifications since {duration}.\n'
         f'{closed_todos_count} TODOs removed\n{len(new_todos)} TODOs added:\n' + todos_added,
