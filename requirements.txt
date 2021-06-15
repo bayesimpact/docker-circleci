@@ -1,6 +1,7 @@
 awscli>=1.18.220
 awscurl
 codecov
+json5
 python-keystoneclient
 python-swiftclient
 requests
