@@ -1,5 +1,5 @@
-# Base image from CircleCI. Contains python 3.8, node, jq, docker, docker-compose
-FROM cimg/python:3.8-node
+# Base image from CircleCI. Contains python 3.9, node, jq, docker, docker-compose
+FROM cimg/python:3.9-node
 
 # Install python libraries needed for the scripts running here.
 COPY requirements.txt /usr/share
