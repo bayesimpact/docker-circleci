@@ -20,7 +20,7 @@ function test_with_branch_and_tag {
   fi
 }
 
-test_with_branch_and_tag "the master branch" "master" "" ""
+test_with_branch_and_tag "the main branch" "main" "" ""
 
 test_with_branch_and_tag "a release tag" "" "2020-02-18_01" ""
 
