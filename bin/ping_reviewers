@@ -92,7 +92,7 @@ def _send_review(
         github_reviewer: Optional[str] = None, reviewers: Optional[str] = None) -> None:
     from_author = f"{_get_user(github_author)}'s"
     request: _Request = {
-        'text': f'A <{demo_url}|demo> is ready' if demo_url else 'CI tests passed'
+        'text': (f'A <{demo_url}|demo> is ready' if demo_url else 'CI tests passed') +
         f' for {from_author} PR '
         f'<https://reviewable.io/reviews/{_REPO}/{_PR_NUMBER}|#{_PR_NUMBER}>.',
         'attachments': [{'text': title}],
