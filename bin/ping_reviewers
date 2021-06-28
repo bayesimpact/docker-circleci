@@ -58,6 +58,7 @@ class _GithubCommit(TypedDict):
 class _GithubPullRequest(TypedDict, total=False):
     """A pull-request object."""
 
+    author: _GithubUser
     base: _GithubPullRequestBase
     number: int
     requested_reviewers: list[_GithubUser]
@@ -88,12 +89,13 @@ def _post_to_slack(prepared_request: _Request) -> None:
 
 
 def _send_review(
-        title: str, demo_url: Optional[str], *,
+        title: str, github_author: str, demo_url: Optional[str], *,
         github_reviewer: Optional[str] = None, reviewers: Optional[str] = None) -> None:
+    from_author = f"{_get_user(github_author)}'s"
     request: _Request = {
-        # TODO(cyrille): Add PR creator in text.
         'text': f'A <{demo_url}|demo> is ready' if demo_url else 'CI tests passed'
-        f'for the PR <https://reviewable.io/reviews/{_REPO}/{_PR_NUMBER}|#{_PR_NUMBER}>.',
+        f' for {from_author} PR '
+        f'<https://reviewable.io/reviews/{_REPO}/{_PR_NUMBER}|#{_PR_NUMBER}>.',
         'attachments': [{'text': title}],
     }
     if github_reviewer:
@@ -136,13 +138,14 @@ def ping_reviewers(demo_url: Optional[str]) -> None:
         return
     logging.info('Pinging reviewers (of #%s) on Slack to tell them the Demo is ready…', _PR_NUMBER)
     title = pull_request['title']
+    author = pull_request['user']['login']
     try:
         for reviewer in all_reviewers:
-            _send_review(title, demo_url, github_reviewer=reviewer)
+            _send_review(title, author, demo_url, github_reviewer=reviewer)
     except (requests.HTTPError, KeyError):
         # Unable to send the review to one of the reviewers, sending it to default channel.
         named_reviewers = ', '.join(_get_user(r) for r in sorted(all_reviewers))
-        _send_review(title, demo_url, reviewers=named_reviewers)
+        _send_review(title, author, demo_url, reviewers=named_reviewers)
 
 
 def main(string_args: Optional[list[str]] = None):
