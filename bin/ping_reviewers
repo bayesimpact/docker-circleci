@@ -12,7 +12,6 @@ import argparse
 import json
 import logging
 import os
-import sys
 from typing import Any, Optional, TypedDict
 
 import requests
@@ -152,10 +151,12 @@ def main(string_args: Optional[list[str]] = None):
     """Parse CLI arguments and ping reviewers."""
 
     parser = argparse.ArgumentParser(description='Ping reviewers for the current PR.')
-    parser.add_argument('demo_url')
+    parser.add_argument(
+        'demo_url', help='A URL where a demo for the changes can be found.', nargs='?')
     args = parser.parse_args(string_args)
     ping_reviewers(args.demo_url)
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
     main()
