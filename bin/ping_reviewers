@@ -9,9 +9,12 @@ Assumes a CIRCLE CI context, with the following additional environment:
 """
 
 import argparse
+import datetime
+import functools
 import json
 import logging
 import os
+import subprocess
 from typing import Any, Optional, TypedDict
 
 import requests
@@ -59,8 +62,10 @@ class _GithubPullRequest(TypedDict, total=False):
 
     author: _GithubUser
     base: _GithubPullRequestBase
+    created_at: str
     number: int
     requested_reviewers: list[_GithubUser]
+    user: _GithubUser
     title: str
 
 
@@ -105,7 +110,36 @@ def _send_review(
     _post_to_slack(request)
 
 
-def ping_reviewers(demo_url: Optional[str]) -> None:
+def ping_request_reviewers(
+        pull_request: _GithubPullRequest, demo_url: Optional[str], *,
+        before: Optional[datetime.datetime] = None) -> None:
+    """Ping reviewers for a given PR."""
+
+    if before and before < datetime.datetime.fromisoformat(pull_request['created_at']):
+        return
+    all_reviewers = list(filter(None, {
+        reviewer.get('login', '')
+        for reviewer_list in (
+            pull_request.get('requested_reviewers', []),
+            pull_request.get('assignees', []))
+        for reviewer in reviewer_list}))
+    if not all_reviewers:
+        return
+    logging.info('Pinging reviewers (of #%s) on Slack to tell them the Demo is ready…', _PR_NUMBER)
+    title = pull_request['title']
+    author = pull_request['user']['login']
+    try:
+        for reviewer in all_reviewers:
+            # TODO(cyrille): Only ping the reviewers who haven't LGTM.
+            # TODO(cyrille): Ping the author if there are no reviewers without LGTM.
+            _send_review(title, author, demo_url, github_reviewer=reviewer)
+    except (requests.HTTPError, KeyError):
+        # Unable to send the review to one of the reviewers, sending it to default channel.
+        named_reviewers = ', '.join(_get_user(r) for r in sorted(all_reviewers))
+        _send_review(title, author, demo_url, reviewers=named_reviewers)
+
+
+def ping_reviewers(demo_url: Optional[str], ping_stale_reviews: bool) -> None:
     """Send slack pings to the relevant people, if requirements are met."""
 
     if not _SLACK_INTEGRATION_URL:
@@ -120,35 +154,25 @@ def ping_reviewers(demo_url: Optional[str]) -> None:
             'please set CIRCLE_PROJECT_USERNAME and CIRCLE_PROJECT_REPONAME')
         return
     # TODO(cyrille): Consider fetching the available PRs from Github if _PR_NUMBER is empty.
-    if not _PR_NUMBER:
+    if not _PR_NUMBER and not ping_stale_reviews:
         logging.info('No PR to review, please set CIRCLE_PULL_REQUEST with a Github PR url')
         return
-    response = requests.get(
-        f'https://api.github.com/repos/{_REPO}/pulls/{_PR_NUMBER}',
-        headers={
-            'Accept': 'application/vnd.github.v3+json',
-            'Authorization': f'token {_GITHUB_TOKEN}',
-        })
+    query = f'https://api.github.com/repos/{_REPO}/pulls/{_PR_NUMBER}'
+    if ping_stale_reviews:
+        query = f'https://api.github.com/repos/{_REPO}/pulls?direction=asc'
+    response = requests.get(query, headers={
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': f'token {_GITHUB_TOKEN}',
+    })
     response.raise_for_status()
-    pull_request: _GithubPullRequest = response.json()
-    all_reviewers = list(filter(None, {
-        reviewer.get('login', '')
-        for reviewer_list in (
-            pull_request.get('requested_reviewers', []),
-            pull_request.get('assignees', []))
-        for reviewer in reviewer_list}))
-    if not all_reviewers:
-        return
-    logging.info('Pinging reviewers (of #%s) on Slack to tell them the Demo is ready…', _PR_NUMBER)
-    title = pull_request['title']
-    author = pull_request['user']['login']
-    try:
-        for reviewer in all_reviewers:
-            _send_review(title, author, demo_url, github_reviewer=reviewer)
-    except (requests.HTTPError, KeyError):
-        # Unable to send the review to one of the reviewers, sending it to default channel.
-        named_reviewers = ', '.join(_get_user(r) for r in sorted(all_reviewers))
-        _send_review(title, author, demo_url, reviewers=named_reviewers)
+    pull_requests = response.json()
+    if not ping_stale_reviews:
+        # Response to the /pulls/PR_NUMBER endpoint only has 1 PR in its answer.
+        pull_requests = [pull_requests]
+    yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
+    for pull_request in pull_requests:
+        ping_request_reviewers(
+            pull_request, demo_url, before=yesterday if ping_stale_reviews else None)
 
 
 def main(string_args: Optional[list[str]] = None):
@@ -157,8 +181,9 @@ def main(string_args: Optional[list[str]] = None):
     parser = argparse.ArgumentParser(description='Ping reviewers for the current PR.')
     parser.add_argument(
         'demo_url', help='A URL where a demo for the changes can be found.', nargs='?')
+    parser.add_argument('--ping-stale-reviews', action='store_true')
     args = parser.parse_args(string_args)
-    ping_reviewers(args.demo_url)
+    ping_reviewers(args.demo_url, args.ping_stale_reviews)
 
 
 if __name__ == '__main__':
