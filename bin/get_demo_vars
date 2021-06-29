@@ -1,34 +1,70 @@
-#!/bin/bash
-# Specify which vars should be set on the demo run from the current build.
-#
-# Assumes that it is run in circleCI context.
-# Example output: repo=bayes%2Fbob&branch=bayes:some-branch&path=&env=
-# TODO(cyrille): Add conf about specific rules.
+#!/usr/bin/env python3
+"""
+ Specify which vars should be set on the demo run from the current build.
+ Assumes that it is run in CircleCI context,
+ in particular it has access to CircleCI environment variables:
+ https://circleci.com/docs/2.0/env-vars/#built-in-environment-variables.
+"""
 
-set -o pipefail
+import argparse
+import os
+import re
+import subprocess
+from typing import Any, Iterator, Optional, Tuple
+from urllib import parse
 
-# For test purposes.
-readonly ROOT=${1:-"$(git rev-parse --abbrev-ref "$REMOTE/HEAD")"}
+_BRANCH = os.getenv('CIRCLE_BRANCH')
+_TAG = os.getenv('CIRCLE_TAG')
+_GITHUB_USER = os.getenv('CIRCLE_PROJECT_USERNAME')
+_GITHUB_REPO = os.getenv('CIRCLE_PROJECT_REPONAME')
 
-if is_origin_default; then
-  # Do not put any demo vars on default branch.
-  exit
-fi
-if [ "$CIRCLE_TAG" ]; then
-  # Specify a repo, a release tag, and a callback to the current workflow, for manual release.
-  python -c "from urllib.parse import urlencode; print(urlencode({
-    'release': '$CIRCLE_TAG',
-    'release_callback': 'https://circleci.com/workflow-run/$CIRCLE_WORKFLOW_ID',
-    'repo': '$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME',
-  }))"
-  exit
-fi
+_VARIABLE_LINE_REGEX = re.compile(r'^\w+=')
 
-echo -n "repo=$CIRCLE_PROJECT_USERNAME%2F$CIRCLE_PROJECT_REPONAME&branch=$CIRCLE_PROJECT_USERNAME:$CIRCLE_BRANCH&"
 
-DEMO_ENV=`git log "--format=%B" -n 1 | grep ^DEMO_ENV_PREFIX= | sed -e "s/DEMO_ENV_PREFIX=//"`
-DEMO_PATH=$(git log "--format=%B" -n 1 | grep '^PATH=' | sed -E 's/PATH=\/?/\//')
+def _run_git(*command: str, **kwargs: Any) -> str:
+    return subprocess.check_output(['git'] + list(command), text=True, **kwargs).strip()
 
-readonly LAST_GREEN="$(git merge-base "$CIRCLE_BRANCH" "$ROOT")"
 
-python -c "from urllib import parse;print(parse.urlencode({'path': '$DEMO_PATH', 'env': '$DEMO_ENV'}))"
+def _get_commit_variables() -> dict[str, str]:
+
+    return {
+        name: value
+        for line in _run_git('log', '-n1', r'--format=%B').split('\n')
+        if _VARIABLE_LINE_REGEX.match(line)
+        for name, value in (line.split('=', 1),)}
+
+
+def _get_variables() -> Iterator[Tuple[str, str]]:
+    if _TAG or _BRANCH == 'main':
+        return
+    yield 'repo', f'{_GITHUB_USER}/{_GITHUB_REPO}'
+    yield 'branch', f'{_GITHUB_USER}:{_BRANCH}'
+    commit_variables = _get_commit_variables()
+    try:
+        yield 'path', commit_variables.pop('PATH')
+    except KeyError:
+        pass
+    try:
+        yield 'env', commit_variables.pop('ENV')
+    except KeyError:
+        pass
+    for key, value in commit_variables.items():
+        yield 'override', f'{key}:{value}'
+
+
+def main(string_args: Optional[list[str]] = None) -> None:
+    """Decide how the demo vars should be returned."""
+
+    parser = argparse.ArgumentParser(description='Get all variables needed for the demos.')
+    parser.add_argument('variable', nargs='?', help='Return only the specified variable.')
+    args = parser.parse_args(string_args)
+    all_variables = list(_get_variables())
+    if not args.variable:
+        print(parse.urlencode(all_variables))
+    else:
+        by_key = dict(all_variables)
+        print(by_key[args.variable])
+
+
+if __name__ == '__main__':
+    main()

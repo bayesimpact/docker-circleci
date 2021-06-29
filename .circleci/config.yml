@@ -9,7 +9,7 @@ jobs:
           reusable: true
       - run:
           name: Test the demo vars script
-          command: bash test/test_get_demo_vars.sh
+          command: python3 test/test_get_demo_vars.py
   build:
     docker:
       - image: bayesimpact/circleci
