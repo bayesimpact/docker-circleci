@@ -132,7 +132,11 @@ def ping_reviewers(demo_url: Optional[str]) -> None:
     response.raise_for_status()
     pull_request: _GithubPullRequest = response.json()
     all_reviewers = list(filter(None, {
-        reviewer.get('login', '') for reviewer in pull_request.get('requested_reviewers', [])}))
+        reviewer.get('login', '')
+        for reviewer_list in (
+            pull_request.get('requested_reviewers', []),
+            pull_request.get('assignees', []))
+        for reviewer in reviewer_list}))
     if not all_reviewers:
         return
     logging.info('Pinging reviewers (of #%s) on Slack to tell them the Demo is ready…', _PR_NUMBER)
