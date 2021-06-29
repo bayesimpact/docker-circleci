@@ -13,11 +13,6 @@ import subprocess
 from typing import Any, Iterator, Optional, Tuple
 from urllib import parse
 
-_BRANCH = os.getenv('CIRCLE_BRANCH')
-_TAG = os.getenv('CIRCLE_TAG')
-_GITHUB_USER = os.getenv('CIRCLE_PROJECT_USERNAME')
-_GITHUB_REPO = os.getenv('CIRCLE_PROJECT_REPONAME')
-
 _VARIABLE_LINE_REGEX = re.compile(r'^\w+=')
 
 
@@ -34,11 +29,15 @@ def _get_commit_variables() -> dict[str, str]:
         for name, value in (line.split('=', 1),)}
 
 
-def _get_variables() -> Iterator[Tuple[str, str]]:
-    if _TAG or _BRANCH == 'main':
+def _get_variables(env: dict[str, str]) -> Iterator[Tuple[str, str]]:
+    branch = env.get('CIRCLE_BRANCH')
+    tag = env.get('CIRCLE_TAG')
+    github_user = env.get('CIRCLE_PROJECT_USERNAME')
+    github_repo = env.get('CIRCLE_PROJECT_REPONAME')
+    if tag or branch == 'main':
         return
-    yield 'repo', f'{_GITHUB_USER}/{_GITHUB_REPO}'
-    yield 'branch', f'{_GITHUB_USER}:{_BRANCH}'
+    yield 'repo', f'{github_user}/{github_repo}'
+    yield 'branch', f'{github_user}:{branch}'
     commit_variables = _get_commit_variables()
     try:
         yield 'path', commit_variables.pop('PATH')
@@ -52,19 +51,18 @@ def _get_variables() -> Iterator[Tuple[str, str]]:
         yield 'override', f'{key}:{value}'
 
 
-def main(string_args: Optional[list[str]] = None) -> None:
+def main(string_args: Optional[list[str]] = None, env: Optional[dict[str, str]] = None) -> str:
     """Decide how the demo vars should be returned."""
 
     parser = argparse.ArgumentParser(description='Get all variables needed for the demos.')
     parser.add_argument('variable', nargs='?', help='Return only the specified variable.')
     args = parser.parse_args(string_args)
-    all_variables = list(_get_variables())
-    if not args.variable:
-        print(parse.urlencode(all_variables))
-    else:
+    all_variables = list(_get_variables(env or os.environ))
+    if args.variable:
         by_key = dict(all_variables)
-        print(by_key[args.variable])
+        return by_key[args.variable]
+    return parse.urlencode(all_variables)
 
 
 if __name__ == '__main__':
-    main()
+    print(main())
