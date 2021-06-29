@@ -25,12 +25,29 @@ jobs:
           command: |
             echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USER" --password-stdin
             docker push bayesimpact/circleci
+  ping-stale-reviews:
+    docker:
+      - image: bayesimpact/circleci
+    steps:
+      - run: ping_reviewers --ping-stale-reviews
 
 workflows:
   version: 2
   test:
     jobs:
       - test
+
+  morningly:
+    triggers:
+      - schedule:
+          cron: "30 9 * * 1-5"
+          filters:
+            branches:
+              only:
+                - main
+    jobs:
+      - ping-stale-reviews:
+          context: Slack
 
   weekly:
     triggers:
