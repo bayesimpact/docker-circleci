@@ -1,26 +1,30 @@
 version: 2
 jobs:
   test:
+    docker:
+      - image: bayesimpact/circleci
     steps:
       - checkout
       - setup_remote_docker:
-        reusable: true
+          reusable: true
       - run:
-        name: Test the demo vars script
-        command: bash test/test_get_demo_vars.sh
+          name: Test the demo vars script
+          command: bash test/test_get_demo_vars.sh
   build:
+    docker:
+      - image: bayesimpact/circleci
     steps:
       - checkout
       - setup_remote_docker:
-        reusable: true
+          reusable: true
       - run:
-        name: Build a new docker image
-        command: docker build --pull -t bayesimpact/circleci .
+          name: Build a new docker image
+          command: docker build --pull -t bayesimpact/circleci .
       - run:
-        name: Push docker image to DockerHub
-        command: |
-          echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USER" --password-stdin
-          docker push bayesimpact/circleci
+          name: Push docker image to DockerHub
+          command: |
+            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USER" --password-stdin
+            docker push bayesimpact/circleci
 
 workflows:
   version: 2
