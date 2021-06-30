@@ -2,15 +2,22 @@
 """Tests for the get_demo_vars script."""
 
 import contextlib
+from importlib import machinery
+from importlib import util
 import os
 from os import path
 import shutil
 import subprocess
 import tempfile
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 import unittest
 
-_SCRIPT = f'{path.dirname(path.dirname(path.abspath(__file__)))}/bin/get_demo_vars'
+# Dynamic import of script without suffix. See https://stackoverflow.com/a/51575963/4482064
+machinery.SOURCE_SUFFIXES.append('')
+_SCRIPT_PATH = f'{path.dirname(path.dirname(path.abspath(__file__)))}/bin/get_demo_vars'
+_SCRIPT_SPEC = util.spec_from_file_location('get_demo_vars', _SCRIPT_PATH)
+get_demo_vars = util.module_from_spec(_SCRIPT_SPEC)
+_SCRIPT_SPEC.loader.exec_module(get_demo_vars)
 
 
 def _run_git(*command: str, **kwargs: Any) -> str:
@@ -20,7 +27,7 @@ def _run_git(*command: str, **kwargs: Any) -> str:
 
 
 @contextlib.contextmanager
-def simple_branch(name: str) -> None:
+def simple_branch(name: str) -> Iterator[None]:
     """Create a branch with the given name and add a staged file.
 
     Deletes the branch once the manager is closed.
@@ -57,17 +64,15 @@ class DemoVarsTestCase(unittest.TestCase):
         os.chdir(cls._previous_dir)
         shutil.rmtree(cls._dir, ignore_errors=True)
 
+    @staticmethod
     def _run_with_branch_and_tag(
-            self, var: Optional[str] = None, *, branch: str = '', tag: str = '') -> str:
-        command = [_SCRIPT]
-        if var:
-            command += [var]
-        return subprocess.check_output(command, text=True, env=dict(os.environ, **{
+            var: Optional[str] = None, *, branch: str = '', tag: str = '') -> str:
+        return get_demo_vars.main([var] if var else None, {
             'CIRCLE_BRANCH': branch,
             'CIRCLE_TAG': tag,
             'CIRCLE_PROJECT_REPONAME': 'bob',
             'CIRCLE_PROJECT_USERNAME': 'bayes',
-        })).strip()
+        })
 
     def test_default_branch(self) -> None:
         """Returns the expected value on the default branch."""
