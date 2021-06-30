@@ -4,23 +4,21 @@
 Assumes a CIRCLE CI context, with the following additional environment:
 - SLACK_INTEGRATION_URL: a slack webhook URL
 - GITHUB_TOKEN: a Github token with read access on Pull Requests
-- SLACK_GITHUB_handle_PAIRINGS: a JSON representation of a dict with Github user handles as keys
+- SLACK_GITHUB_USER_PAIRINGS: a JSON representation of a dict with Github user handles as keys
     and corresponding Slack user IDs as values.
+Those are available in bayesimpact org under the Slack context.
 """
 
 import argparse
 import datetime
-import functools
 import json
 import logging
 import os
-import subprocess
 from typing import Any, Optional, TypedDict
 
 import requests
 
 _SLACK_INTEGRATION_URL = os.getenv('SLACK_INTEGRATION_URL', '')
-# TODO(cyrille): Ensure this exists, probably with a Circle context.
 _GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
 
 _REPO = f"{os.getenv('CIRCLE_PROJECT_USERNAME', '')}/{os.getenv('CIRCLE_PROJECT_REPONAME', '')}"
