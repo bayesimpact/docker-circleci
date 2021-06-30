@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 from typing import Any, Iterator, Optional
 import unittest
+from unittest import mock
 
 # Dynamic import of script without suffix. See https://stackoverflow.com/a/51575963/4482064
 machinery.SOURCE_SUFFIXES.append('')
@@ -66,13 +67,15 @@ class DemoVarsTestCase(unittest.TestCase):
 
     @staticmethod
     def _run_with_branch_and_tag(
-            var: Optional[str] = None, *, branch: str = '', tag: str = '') -> str:
+            var: Optional[str] = None, *,
+            branch: str = '', tag: str = '', env: Optional[dict[str, str]] = None) -> str:
         return get_demo_vars.main([var] if var else None, {
             'CIRCLE_BRANCH': branch,
             'CIRCLE_TAG': tag,
             'CIRCLE_PROJECT_REPONAME': 'bob',
             'CIRCLE_PROJECT_USERNAME': 'bayes',
-        })
+            'CIRCLE_WORKFLOW_ID': '',
+        } | (env or {}))
 
     def test_default_branch(self) -> None:
         """Returns the expected value on the default branch."""
@@ -104,6 +107,52 @@ class DemoVarsTestCase(unittest.TestCase):
             self.assertEqual(
                 'repo=bayes%2Fbob&branch=bayes%3Acyrille-path&path=%2Feval',
                 self._run_with_branch_and_tag(branch='cyrille-path'))
+
+    @mock.patch(get_demo_vars.requests.__name__ + '.get')
+    def test_with_demo_waiter(self, mock_get: mock.MagicMock) -> None:
+        """Yield a ci_callback_url when there's a wait-for-demo approval in workflow."""
+
+        mock_get.return_value.json.return_value = {'items': [{
+            'approval_request_id': 'i-approve-this',
+            'name': 'wait-for-demo',
+            'type': 'approval',
+        }]}
+        with simple_branch('cyrille-callback'):
+            _run_git('commit', '-nm', 'Any commit message.')
+            self.assertEqual(
+                'ci_callback_url=https%3A%2F%2Fcircleci.com%2Fapi%2Fv2%2Fworkflow%2Fmy-workflow-id'
+                '%2Fapprove%2Fi-approve-this&repo=bayes%2Fbob&branch=bayes%3Acyrille-callback',
+                self._run_with_branch_and_tag(branch='cyrille-callback', env={
+                    'CIRCLE_WORKFLOW_ID': 'my-workflow-id',
+                    'CIRCLE_API_TOKEN': 'my-circle-token',
+                }))
+            mock_get.assert_called_with(
+                'https://circleci.com/api/v2/workflow/my-workflow-id/job',
+                headers={'Circle-Token': 'my-circle-token'})
+
+    @mock.patch(get_demo_vars.requests.__name__ + '.get')
+    def test_without_demo_waiter(self, mock_get: mock.MagicMock) -> None:
+        """Yield a ci_callback_url when there's a wait-for-demo approval in workflow."""
+
+        mock_get.return_value.json.return_value = {'items': [{
+            'approval_request_id': 'i-approve-this',
+            'name': 'approve-for-release',
+            'type': 'approval',
+        }]}
+        self.assertEqual('', self._run_with_branch_and_tag(tag='release', env={
+            'CIRCLE_WORKFLOW_ID': 'my-workflow-id',
+            'CIRCLE_API_TOKEN': 'my-circle-token',
+        }))
+        mock_get.assert_called_with(
+            'https://circleci.com/api/v2/workflow/my-workflow-id/job',
+            headers={'Circle-Token': 'my-circle-token'})
+
+    def test_without_circle_token(self) -> None:
+        """Yield a ci_callback_url when there's a wait-for-demo approval in workflow."""
+
+        with self.assertRaises(ValueError):
+            self._run_with_branch_and_tag(
+                tag='release', env={'CIRCLE_WORKFLOW_ID': 'my-workflow-id'})
 
 
 if __name__ == '__main__':
