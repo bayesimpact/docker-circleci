@@ -10,7 +10,7 @@ jobs:
       - run:
           name: Test the demo vars script
           command: python3 test/test_get_demo_vars.py
-  build:
+  build-publish:
     docker:
       - image: bayesimpact/circleci
     steps:
@@ -33,9 +33,14 @@ jobs:
 
 workflows:
   version: 2
-  test:
+  test-build-publish:
     jobs:
       - test
+      - build-publish:
+          filters:
+            branches:
+              only: main
+          context: Docker
 
   morningly:
     triggers:
@@ -58,5 +63,6 @@ workflows:
               only:
                 - main
     jobs:
-      - build:
+      # To make sure cimg/python:3.9-node is still current.
+      - build-publish:
           context: Docker
