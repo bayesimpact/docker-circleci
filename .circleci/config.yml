@@ -36,6 +36,11 @@ workflows:
   test:
     jobs:
       - test
+      - build:
+          filters:
+            branches:
+              only: main
+          context: Docker
 
   morningly:
     triggers:
