@@ -8,8 +8,8 @@ jobs:
       - setup_remote_docker:
           reusable: true
       - run:
-          name: Test the demo vars script
-          command: python3 test/test_get_demo_vars.py
+          name: Test the python scripts
+          command: ls test/test_*.py | xargs -n1 python3
   build:
     docker:
       - image: bayesimpact/circleci
