@@ -7,11 +7,14 @@
 """
 
 import argparse
+import logging
 import os
 import re
 import subprocess
 from typing import Any, Iterator, Optional, Tuple
 from urllib import parse
+
+import requests
 
 _VARIABLE_LINE_REGEX = re.compile(r'^\w+=')
 
@@ -29,16 +32,38 @@ def _get_commit_variables() -> dict[str, str]:
         for name, value in (line.split('=', 1),)}
 
 
+def _get_callback_url(env: dict[str, str]) -> Optional[str]:
+    workflow_id = env.get('CIRCLE_WORKFLOW_ID')
+    if not workflow_id:
+        logging.info('Missing a workflow ID, no callback_url available.')
+        return
+    circle_token = env.get('CIRCLE_API_TOKEN')
+    if not circle_token:
+        raise ValueError('Missing a CircleCI API token. Please set CIRCLE_API_TOKEN')
+    workflow_api = f'https://circleci.com/api/v2/workflow/{workflow_id}'
+    # https://circleci.com/docs/api/v2/#operation/listWorkflowJobs
+    response = requests.get(f'{workflow_api}/job', headers={'Circle-Token': circle_token})
+    approval_id = next((
+        item['approval_request_id']
+        for item in response.json().get('items', [])
+        if item.get('type') == 'approval'
+        if item.get('name') == 'wait-for-demo'), None)
+    return f'{workflow_api}/approve/{approval_id}' if approval_id else None
+
+
 def _get_variables(env: dict[str, str]) -> Iterator[Tuple[str, str]]:
     branch = env.get('CIRCLE_BRANCH')
     tag = env.get('CIRCLE_TAG')
     github_user = env.get('CIRCLE_PROJECT_USERNAME')
     github_repo = env.get('CIRCLE_PROJECT_REPONAME')
+    if callback_url := _get_callback_url(env):
+        yield 'ci_callback_url', callback_url
     if tag or branch == 'main':
         return
     yield 'repo', f'{github_user}/{github_repo}'
     yield 'branch', f'{github_user}:{branch}'
     commit_variables = _get_commit_variables()
+    # TODO(cyrille): Replace with 'yield if true' pattern as above.
     try:
         yield 'path', commit_variables.pop('PATH')
     except KeyError:
