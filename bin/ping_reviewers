@@ -14,17 +14,39 @@ import datetime
 import json
 import logging
 import os
-from typing import Any, Optional, TypedDict
+from typing import Any, NamedTuple, Optional, TypedDict
 
 import requests
 
-_SLACK_INTEGRATION_URL = os.getenv('SLACK_INTEGRATION_URL', '')
-_GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
 
-_REPO = f"{os.getenv('CIRCLE_PROJECT_USERNAME', '')}/{os.getenv('CIRCLE_PROJECT_REPONAME', '')}"
-_PR_NUMBER = os.getenv('CIRCLE_PULL_REQUEST', '').rsplit('/', 1)[-1]
+class _Config(NamedTuple):
+    # The full name of the changed github repository. Fetched from CircleCI environment.
+    github_repo: str
+    # A pairing between github user logins and Slack user IDs.
+    # Fetched from CircleCI 'Slack' context.
+    github_to_slack: dict[str, str]
+    # A token to access Github API with read rights on PR info.
+    # Fetched from CircleCI 'Slack' context.
+    github_token: str
+    # The number of the current PR. Fetched from CircleCI environment
+    pr_number: str
+    # A webhook URL for slack. Fetched from CircleCI 'Slack' context.
+    slack_url: str
 
-_GITHUB_TO_SLACK: dict[str, str] = json.loads(os.getenv('SLACK_GITHUB_USER_PAIRINGS', r'{}'))
+    @staticmethod
+    def from_env(environ: Optional[dict[str, str]] = None) -> '_Config':
+        """Generate from an environment dict."""
+
+        env = environ or dict(os.environ)
+        slack_url = env.get('SLACK_INTEGRATION_URL', '')
+        github_token = env.get('GITHUB_TOKEN', '')
+
+        github_repo = '/'.join((
+            env.get('CIRCLE_PROJECT_USERNAME', ''), env.get('CIRCLE_PROJECT_REPONAME', '')))
+        pr_number = env.get('CIRCLE_PULL_REQUEST', '').rsplit('/', 1)[-1]
+
+        github_to_slack: dict[str, str] = json.loads(env.get('SLACK_GITHUB_USER_PAIRINGS', r'{}'))
+        return _Config(github_repo, github_to_slack, github_token, pr_number, slack_url)
 
 
 class _GithubUser(TypedDict):
@@ -63,6 +85,7 @@ class _GithubPullRequest(TypedDict, total=False):
     created_at: str
     number: int
     requested_reviewers: list[_GithubUser]
+    assignees: list[_GithubUser]
     user: _GithubUser
     title: str
 
@@ -73,9 +96,9 @@ class _Request(TypedDict, total=False):
     attachments: list[dict[str, Any]]
 
 
-def _get_user(github_handle: str, as_channel: bool = False) -> str:
+def _get_user(github_handle: str, config: _Config, as_channel: bool = False) -> str:
     try:
-        user_id = _GITHUB_TO_SLACK[github_handle]
+        user_id = config.github_to_slack[github_handle]
     except KeyError:
         if as_channel:
             raise
@@ -85,37 +108,37 @@ def _get_user(github_handle: str, as_channel: bool = False) -> str:
 
 
 # TODO(cyrille): Consider using a repo-specific channel.
-def _post_to_slack(prepared_request: _Request) -> None:
-    response = requests.post(_SLACK_INTEGRATION_URL, json=prepared_request)
+def _post_to_slack(prepared_request: _Request, config: _Config) -> None:
+    response = requests.post(config.slack_url, json=prepared_request)
     response.raise_for_status()
 
 
 def _send_review(
-        title: str, github_author: str, demo_url: Optional[str], *,
+        title: str, github_author: str, demo_url: Optional[str], config: _Config, *,
         github_reviewer: Optional[str] = None, reviewers: Optional[str] = None) -> None:
-    from_author = f"{_get_user(github_author)}'s"
+    from_author = f"{_get_user(github_author, config)}'s"
     request: _Request = {
         'text': (f'A <{demo_url}|demo> is ready' if demo_url else 'CI tests passed') +
-        f' for {from_author} PR '
-        f'<https://reviewable.io/reviews/{_REPO}/{_PR_NUMBER}|#{_PR_NUMBER}>.',
+        f' for {from_author} PR <https://reviewable.io/reviews'
+        f'/{config.github_repo}/{config.pr_number}|#{config.pr_number}>.',
         'attachments': [{'text': title}],
     }
     if github_reviewer:
-        request['channel'] = _get_user(github_reviewer, as_channel=True)
+        request['channel'] = _get_user(github_reviewer, config, as_channel=True)
         request['text'] += ' You can start looking at it.'
     elif reviewers:
         request['text'] += f' Reviewers ({reviewers}) can start looking at it.'
-    _post_to_slack(request)
+    _post_to_slack(request, config)
 
 
 def ping_request_reviewers(
-        pull_request: _GithubPullRequest, demo_url: Optional[str], *,
-        before: Optional[datetime.datetime] = None) -> None:
+        pull_request: _GithubPullRequest, demo_url: Optional[str], config: _Config, *,
+        before: Optional[datetime.datetime] = None) -> int:
     """Ping reviewers for a given PR."""
 
     if before and before < datetime.datetime.fromisoformat(
             pull_request['created_at'].removesuffix('Z')):
-        return
+        return 0
     all_reviewers = list(filter(None, {
         reviewer.get('login', '')
         for reviewer_list in (
@@ -123,45 +146,50 @@ def ping_request_reviewers(
             pull_request.get('assignees', []))
         for reviewer in reviewer_list}))
     if not all_reviewers:
-        return
-    logging.info('Pinging reviewers (of #%s) on Slack to tell them the Demo is ready…', _PR_NUMBER)
+        return 0
+    logging.info(
+        'Pinging reviewers (of #%s) on Slack to tell them the Demo is ready…', config.pr_number)
     title = pull_request['title']
     author = pull_request['user']['login']
+    ping_count = 0
     try:
         for reviewer in all_reviewers:
             # TODO(cyrille): Only ping the reviewers who haven't LGTM.
             # TODO(cyrille): Ping the author if there are no reviewers without LGTM.
-            _send_review(title, author, demo_url, github_reviewer=reviewer)
+            _send_review(title, author, demo_url, config, github_reviewer=reviewer)
+            ping_count += 1
     except (requests.HTTPError, KeyError):
         # Unable to send the review to one of the reviewers, sending it to default channel.
-        named_reviewers = ', '.join(_get_user(r) for r in sorted(all_reviewers))
-        _send_review(title, author, demo_url, reviewers=named_reviewers)
+        named_reviewers = ', '.join(_get_user(r, config) for r in sorted(all_reviewers))
+        _send_review(title, author, demo_url, config, reviewers=named_reviewers)
+        ping_count += 1
+    return ping_count
 
 
-def ping_reviewers(demo_url: Optional[str], ping_stale_reviews: bool) -> None:
+def ping_reviewers(demo_url: Optional[str], ping_stale_reviews: bool, config: _Config) -> int:
     """Send slack pings to the relevant people, if requirements are met."""
 
-    if not _SLACK_INTEGRATION_URL:
+    if not config.slack_url:
         logging.info('Slack integration URL is missing, please set SLACK_INTEGRATION_URL')
-        return
-    if not _GITHUB_TOKEN:
+        return 0
+    if not config.github_token:
         logging.info('Need a Github token to get PR info, please set GITHUB_TOKEN')
-        return
-    if _REPO.strip('/') != _REPO:
+        return 0
+    if config.github_repo.strip('/') != config.github_repo:
         logging.info(
             'No Github repo specified, '
             'please set CIRCLE_PROJECT_USERNAME and CIRCLE_PROJECT_REPONAME')
-        return
-    # TODO(cyrille): Consider fetching the available PRs from Github if _PR_NUMBER is empty.
-    if not _PR_NUMBER and not ping_stale_reviews:
+        return 0
+    # TODO(cyrille): Consider fetching the available PRs from Github if pr_number is empty.
+    if not config.pr_number and not ping_stale_reviews:
         logging.info('No PR to review, please set CIRCLE_PULL_REQUEST with a Github PR url')
-        return
-    query = f'https://api.github.com/repos/{_REPO}/pulls/{_PR_NUMBER}'
+        return 0
+    query = f'https://api.github.com/repos/{config.github_repo}/pulls/{config.pr_number}'
     if ping_stale_reviews:
-        query = f'https://api.github.com/repos/{_REPO}/pulls?direction=asc'
+        query = f'https://api.github.com/repos/{config.github_repo}/pulls?direction=asc'
     response = requests.get(query, headers={
         'Accept': 'application/vnd.github.v3+json',
-        'Authorization': f'token {_GITHUB_TOKEN}',
+        'Authorization': f'token {config.github_token}',
     })
     response.raise_for_status()
     pull_requests = response.json()
@@ -169,20 +197,25 @@ def ping_reviewers(demo_url: Optional[str], ping_stale_reviews: bool) -> None:
         # Response to the /pulls/PR_NUMBER endpoint only has 1 PR in its answer.
         pull_requests = [pull_requests]
     yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
+    ping_count = 0
     for pull_request in pull_requests:
-        ping_request_reviewers(
-            pull_request, demo_url, before=yesterday if ping_stale_reviews else None)
+        ping_count += ping_request_reviewers(
+            pull_request, demo_url, config, before=yesterday if ping_stale_reviews else None)
+    return ping_count
 
 
-def main(string_args: Optional[list[str]] = None):
-    """Parse CLI arguments and ping reviewers."""
+def main(string_args: Optional[list[str]] = None, env: Optional[dict[str, str]] = None) -> int:
+    """Parse CLI arguments and ping reviewers.
+
+    Return the number of ping sent (for testing purposes).
+    """
 
     parser = argparse.ArgumentParser(description='Ping reviewers for the current PR.')
     parser.add_argument(
         'demo_url', help='A URL where a demo for the changes can be found.', nargs='?')
     parser.add_argument('--ping-stale-reviews', action='store_true')
     args = parser.parse_args(string_args)
-    ping_reviewers(args.demo_url, args.ping_stale_reviews)
+    return ping_reviewers(args.demo_url, args.ping_stale_reviews, _Config.from_env(env))
 
 
 if __name__ == '__main__':
