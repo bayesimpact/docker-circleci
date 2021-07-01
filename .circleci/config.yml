@@ -12,6 +12,14 @@ jobs:
           # TODO(cyrille): Use nose.
           command: ls test/*_test.py | xargs -n1 python3
 
+  ping:
+    docker:
+      - image: bayesimpact/circleci
+    steps:
+      - run:
+          name: Ping the reviewers
+          command: ping_reviewers
+
   build-publish:
     docker:
       - image: bayesimpact/circleci
@@ -38,6 +46,11 @@ workflows:
   test-build-publish:
     jobs:
       - test
+      - ping:
+          filters:
+            branches:
+              ignore: main
+          context: Slack
       - build-publish:
           filters:
             branches:
