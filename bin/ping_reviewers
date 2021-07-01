@@ -113,7 +113,8 @@ def ping_request_reviewers(
         before: Optional[datetime.datetime] = None) -> None:
     """Ping reviewers for a given PR."""
 
-    if before and before < datetime.datetime.fromisoformat(pull_request['created_at']):
+    if before and before < datetime.datetime.fromisoformat(
+            pull_request['created_at'].removesuffix('Z')):
         return
     all_reviewers = list(filter(None, {
         reviewer.get('login', '')
