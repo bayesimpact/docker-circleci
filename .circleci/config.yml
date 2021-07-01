@@ -10,6 +10,10 @@ jobs:
       - run:
           name: Test the demo vars script
           command: python3 test/test_get_demo_vars.py
+      - run:
+          name: Ping the reviewers
+          command: |
+            [[ $CIRCLE_BRANCH == main ]] || ping_reviewers
   build-publish:
     docker:
       - image: bayesimpact/circleci
