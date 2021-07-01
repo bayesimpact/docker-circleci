@@ -11,6 +11,10 @@ jobs:
           name: Test the python scripts
           # TODO(cyrille): Use nose.
           command: ls test/*_test.py | xargs -n1 python3
+      - run:
+          name: Ping the reviewers
+          command: |
+            [[ $CIRCLE_BRANCH == main ]] || ping_reviewers
 
   build-publish:
     docker:
