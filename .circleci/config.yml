@@ -8,8 +8,10 @@ jobs:
       - setup_remote_docker:
           reusable: true
       - run:
-          name: Test the demo vars script
-          command: python3 test/test_get_demo_vars.py
+          name: Test the python scripts
+          # TODO(cyrille): Use nose.
+          command: ls test/*_test.py | xargs -n1 python3
+
   build-publish:
     docker:
       - image: bayesimpact/circleci
