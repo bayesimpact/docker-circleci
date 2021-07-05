@@ -51,6 +51,8 @@ workflows:
             branches:
               ignore: main
           context: Slack
+          requires:
+            - test
       - build-publish:
           filters:
             branches:
