@@ -4,6 +4,7 @@ codecov
 json5
 python-keystoneclient
 python-swiftclient
+pyYAML
 requests
 # TODO(cyrille): Make sure we actually use this somewhere, or drop.
 shyaml
