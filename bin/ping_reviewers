@@ -14,7 +14,8 @@ import datetime
 import json
 import logging
 import os
-from typing import Any, NamedTuple, Optional, TypedDict
+import typing
+from typing import Any, Literal, Generic, NamedTuple, Optional, Protocol, TypedDict, Union
 
 import requests
 
@@ -87,11 +88,60 @@ class _GithubPullRequest(TypedDict, total=False):
     author: _GithubUser
     base: _GithubPullRequestBase
     created_at: str
+    node_id: str
+    head: _GithubCommit
     number: int
     requested_reviewers: list[_GithubUser]
     assignees: list[_GithubUser]
     user: _GithubUser
     title: str
+
+
+_T = typing.TypeVar('_T')
+
+
+class _Connection(Protocol, Generic[_T]):
+    def __getitem__(self, nodes: Literal['nodes']) -> list[_T]:
+        pass
+
+    def get(self, nodes: Literal['nodes'], default: list[_T]) -> list[_T]:
+        pass
+
+
+_PULL_REQUEST_INFO_GRAPHQL_QUERY = '''query($prNodeId: ID!) {
+    node(id:$prNodeId) {
+        ... on PullRequest {
+            commits(last:1) {
+                nodes {
+                    commit {
+                        statusCheckRollup {
+                            contexts(last:100) {
+                                nodes {
+                                    ... on StatusContext{
+                                        context
+                                        targetUrl
+                                    }
+                                }
+                            }
+                            state
+                        }
+                    }
+                }
+            }
+        }
+    }
+}'''
+_Context = TypedDict('_Context', {'context': str, 'targetUrl': str}, total=False)
+_StatusState = Literal['ERROR', 'EXPECTED', 'FAILURE', 'PENDING', 'SUCCESS']
+_Rollup = TypedDict('_Rollup', {
+    'contexts': _Connection[_Context],
+    'state': _StatusState,
+}, total=False)
+_Commit = TypedDict('_Commit', {'statusCheckRollup': _Rollup}, total=False)
+_PRCommit = TypedDict('_PRCommit', {'commit': _Commit})
+_PullRequest = TypedDict('_PullRequest', {'commits': _Connection[_PRCommit]})
+_Node = TypedDict('_Node', {'node': _PullRequest}, total=False)
+_Response = TypedDict('_Response', {'data': _Node})
 
 
 class _Request(TypedDict, total=False):
@@ -135,9 +185,37 @@ def _send_review(
     _post_to_slack(request, config)
 
 
+def _check_deeper(pull_request: _GithubPullRequest, config: _Config) -> Union[bool, str]:
+    """Whether the given commit needs a review, and if so on what demo."""
+
+    response = requests.get('https://api.github.com/graphql', data={
+        'query': _PULL_REQUEST_INFO_GRAPHQL_QUERY,
+        'variables': {'prNodeId': pull_request['node_id']},
+    }, headers={'Authorization': f'token {config.github_token}'})
+    response.raise_for_status()
+    graphql_response: _Response = response.json()
+    pr_data = graphql_response.get('data', {}).get('node')
+    if not pr_data:
+        # Unable to fetch PR data somehow, let's assume it needs reviewing.
+        return True
+    commits = pr_data.get('commits', {}).get('nodes', [])
+    if not commits:
+        # Couldn't find any commit to merge in this PR, it probably doesn't need any reviewing.
+        return False
+    rollup = commits[0].get('commit', {}).get('statusCheckRollup', {})
+    if rollup.get('state') != 'PENDING':
+        # Global state is either ERROR or SUCCESS. In both cases, no need to ask for review.
+        return False
+    demo_url = next((
+        status.get('targetUrl')
+        for status in rollup.get('contexts', {}).get('nodes', [])
+        if status.get('context') == 'bayesimpact/demo-frontend'), None)
+    return demo_url or True
+
+
 def ping_request_reviewers(
         pull_request: _GithubPullRequest, demo_url: Optional[str], config: _Config, *,
-        before: Optional[datetime.datetime] = None) -> int:
+        before: Optional[datetime.datetime] = None, should_check: bool = False) -> int:
     """Ping reviewers for a given PR."""
 
     if before and before < datetime.datetime.fromisoformat(
@@ -146,6 +224,13 @@ def ping_request_reviewers(
     if pull_request.get('author', {}).get('login', '').endswidth('[bot]'):
         # Not pinging for bot reviews.
         return 0
+    if should_check:
+        # Make sure we actually want a review.
+        demo_url_or_bool = _check_deeper(pull_request, config)
+        if not demo_url_or_bool:
+            return 0
+        if not demo_url and isinstance(demo_url_or_bool, str):
+            demo_url = demo_url_or_bool
     all_reviewers = list(filter(None, {
         reviewer.get('login', '')
         for reviewer_list in (
