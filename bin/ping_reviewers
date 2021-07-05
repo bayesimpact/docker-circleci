@@ -143,7 +143,7 @@ def ping_request_reviewers(
     if before and before < datetime.datetime.fromisoformat(
             pull_request['created_at'].removesuffix('Z')):
         return 0
-    if pull_request.get('author', {}).get('login', '').endswidth('[bot]'):
+    if pull_request.get('author', {}).get('login', '').endswith('[bot]'):
         # Not pinging for bot reviews.
         return 0
     all_reviewers = list(filter(None, {
