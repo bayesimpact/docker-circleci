@@ -118,13 +118,13 @@ def _post_to_slack(prepared_request: _Request, config: _Config) -> None:
 
 
 def _send_review(
-        title: str, github_author: str, demo_url: Optional[str], config: _Config, *,
+        number: str, title: str, github_author: str, demo_url: Optional[str], config: _Config, *,
         github_reviewer: Optional[str] = None, reviewers: Optional[str] = None) -> None:
     from_author = f"{_get_user(github_author, config)}'s"
     request: _Request = {
         'text': (f'A <{demo_url}|demo> is ready' if demo_url else 'CI tests passed') +
         f' for {from_author} PR <https://reviewable.io/reviews'
-        f'/{config.github_repo}/{config.pr_number}|#{config.pr_number}>.',
+        f'/{config.github_repo}/{number}|#{number}>.',
         'attachments': [{'text': title}],
     }
     if github_reviewer:
@@ -151,8 +151,9 @@ def ping_request_reviewers(
         for reviewer in reviewer_list}))
     if not all_reviewers:
         return 0
+    pr_number = str(pull_request['number'])
     logging.info(
-        'Pinging reviewers (of #%s) on Slack to tell them the Demo is ready…', config.pr_number)
+        'Pinging reviewers (of #%s) on Slack to tell them the Demo is ready…', pr_number)
     title = pull_request['title']
     author = pull_request['user']['login']
     ping_count = 0
@@ -160,12 +161,12 @@ def ping_request_reviewers(
         for reviewer in all_reviewers:
             # TODO(cyrille): Only ping the reviewers who haven't LGTM.
             # TODO(cyrille): Ping the author if there are no reviewers without LGTM.
-            _send_review(title, author, demo_url, config, github_reviewer=reviewer)
+            _send_review(pr_number, title, author, demo_url, config, github_reviewer=reviewer)
             ping_count += 1
     except (requests.HTTPError, KeyError):
         # Unable to send the review to one of the reviewers, sending it to default channel.
         named_reviewers = ', '.join(_get_user(r, config) for r in sorted(all_reviewers))
-        _send_review(title, author, demo_url, config, reviewers=named_reviewers)
+        _send_review(pr_number, title, author, demo_url, config, reviewers=named_reviewers)
         ping_count += 1
     return ping_count
 
