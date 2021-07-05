@@ -20,6 +20,9 @@ import requests
 
 
 class _Config(NamedTuple):
+    # The commit sha1.
+    commit: str
+
     # The full name of the changed github repository. Fetched from CircleCI environment.
     github_repo: str
 
@@ -48,9 +51,10 @@ class _Config(NamedTuple):
         github_repo = '/'.join((
             env.get('CIRCLE_PROJECT_USERNAME', ''), env.get('CIRCLE_PROJECT_REPONAME', '')))
         pr_number = env.get('CIRCLE_PULL_REQUEST', '').rsplit('/', 1)[-1]
+        commit_sha = env.get('CIRCLE_SHA1', '')
 
         github_to_slack: dict[str, str] = json.loads(env.get('SLACK_GITHUB_USER_PAIRINGS', r'{}'))
-        return _Config(github_repo, github_to_slack, github_token, pr_number, slack_url)
+        return _Config(commit_sha, github_repo, github_to_slack, github_token, pr_number, slack_url)
 
 
 class _GithubUser(TypedDict):
@@ -167,11 +171,30 @@ def ping_request_reviewers(
             _send_review(pr_number, title, author, demo_url, config, github_reviewer=reviewer)
             ping_count += 1
     except (requests.HTTPError, KeyError):
+        logging.warning('Pinging on default channel')
         # Unable to send the review to one of the reviewers, sending it to default channel.
         named_reviewers = ', '.join(_get_user(r, config) for r in sorted(all_reviewers))
         _send_review(pr_number, title, author, demo_url, config, reviewers=named_reviewers)
         ping_count += 1
     return ping_count
+
+
+def _get_query(config: _Config, should_ping_stale: bool) -> Optional[str]:
+    if should_ping_stale:
+        return f'https://api.github.com/repos/{config.github_repo}/pulls?direction=asc'
+    if not config.pr_number and not config.commit:
+        return None
+    pr_number = config.pr_number
+    if not pr_number:
+        response = requests.get('/search/issues', params=dict(q=config.commit), headers={
+            'Accept': 'application/vnd.github.v3+json',
+            'Authorization': f'token {config.github_token}',
+        })
+        response.raise_for_status()
+        pr_number = str(response.json().get('number', ''))
+    if not pr_number:
+        return None
+    return f'https://api.github.com/repos/{config.github_repo}/pulls/{pr_number}'
 
 
 def ping_reviewers(demo_url: Optional[str], ping_stale_reviews: bool, config: _Config) -> int:
@@ -188,13 +211,10 @@ def ping_reviewers(demo_url: Optional[str], ping_stale_reviews: bool, config: _C
             'No Github repo specified, '
             'please set CIRCLE_PROJECT_USERNAME and CIRCLE_PROJECT_REPONAME')
         return 0
-    # TODO(cyrille): Consider fetching the available PRs from Github if pr_number is empty.
-    if not config.pr_number and not ping_stale_reviews:
-        logging.info('No PR to review, please set CIRCLE_PULL_REQUEST with a Github PR url')
+    query = _get_query(config, ping_stale_reviews)
+    if not query:
+        logging.info('No PR to review, please set CIRCLE_PULL_REQUEST with a Github PR url.')
         return 0
-    query = f'https://api.github.com/repos/{config.github_repo}/pulls/{config.pr_number}'
-    if ping_stale_reviews:
-        query = f'https://api.github.com/repos/{config.github_repo}/pulls?direction=asc'
     response = requests.get(query, headers={
         'Accept': 'application/vnd.github.v3+json',
         'Authorization': f'token {config.github_token}',
