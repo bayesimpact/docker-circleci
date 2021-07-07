@@ -14,7 +14,8 @@ import datetime
 import json
 import logging
 import os
-from typing import Any, NamedTuple, Optional, TypedDict
+import typing
+from typing import Any, Literal, Generic, NamedTuple, Optional, Protocol, TypedDict, Union
 
 import requests
 
@@ -57,6 +58,16 @@ class _Config(NamedTuple):
         return _Config(commit_sha, github_repo, github_to_slack, github_token, pr_number, slack_url)
 
 
+class _ReviewInfo(NamedTuple):
+    """Relevant information aggregated about a PR."""
+
+    # Whether the PR actually needs to be reviewed.
+    should_review: bool
+
+    # A URL where a demo can be found for review, if available.
+    demo_url: Optional[str] = None
+
+
 class _GithubUser(TypedDict):
     """A user object."""
 
@@ -91,11 +102,70 @@ class _GithubPullRequest(TypedDict, total=False):
     author: _GithubUser
     base: _GithubPullRequestBase
     created_at: str
+    node_id: str
+    head: _GithubCommit
     number: int
     requested_reviewers: list[_GithubUser]
     assignees: list[_GithubUser]
     user: _GithubUser
     title: str
+
+
+_T = typing.TypeVar('_T')
+
+
+class _Connection(Protocol, Generic[_T]):
+    def __getitem__(self, nodes: Literal['nodes']) -> list[_T]:
+        pass
+
+    def get(self, nodes: Literal['nodes'], default: list[_T]) -> list[_T]:
+        pass
+
+
+# GraphQL query for information about a Pull Request.
+# Relevant information:
+#   - on the last commit of the PR:
+#       - global status state
+#       - demo URL from the bayesimpact/demo-frontend status
+# See https://docs.github.com/en/graphql for the full reference.
+_PULL_REQUEST_INFO_GRAPHQL_QUERY = '''query($prNodeId: ID!) {
+    node(id: $prNodeId) {
+        ... on PullRequest {
+            # Take the last commit.
+            commits(last:1) {
+                nodes {
+                    commit {
+                        # Look at its status checks.
+                        statusCheckRollup {
+                            contexts(last:100) {
+                                nodes {
+                                    ... on StatusContext {
+                                        context
+                                        targetUrl
+                                    }
+                                }
+                            }
+                            # Aggregated state for statuses may be PENDING, FAILURE or SUCCESS.
+                            state
+                        }
+                    }
+                }
+            }
+        }
+    }
+}'''
+# TODO(cyrille): Generate those from the query in a separated lib.
+_Context = TypedDict('_Context', {'context': str, 'targetUrl': str}, total=False)
+_StatusState = Literal['ERROR', 'EXPECTED', 'FAILURE', 'PENDING', 'SUCCESS']
+_Rollup = TypedDict('_Rollup', {
+    'contexts': _Connection[_Context],
+    'state': _StatusState,
+}, total=False)
+_Commit = TypedDict('_Commit', {'statusCheckRollup': _Rollup}, total=False)
+_PRCommit = TypedDict('_PRCommit', {'commit': _Commit})
+_PullRequest = TypedDict('_PullRequest', {'commits': _Connection[_PRCommit]})
+_Node = TypedDict('_Node', {'node': _PullRequest}, total=False)
+_Response = TypedDict('_Response', {'data': _Node})
 
 
 class _Request(TypedDict, total=False):
@@ -139,9 +209,39 @@ def _send_review(
     _post_to_slack(request, config)
 
 
+def _get_more_info(pull_request: _GithubPullRequest, config: _Config) -> _ReviewInfo:
+    """Whether the given commit needs a review, and if so on what demo."""
+
+    response = requests.post('https://api.github.com/graphql', json={
+        'query': _PULL_REQUEST_INFO_GRAPHQL_QUERY,
+        'variables': {
+            'prNodeId': pull_request['node_id'],
+        },
+    }, headers={'Authorization': f'token {config.github_token}'})
+    response.raise_for_status()
+    graphql_response: _Response = response.json()
+    pr_data = graphql_response.get('data', {}).get('node')
+    if not pr_data:
+        # Unable to fetch PR data somehow, let's assume it needs reviewing.
+        return _ReviewInfo(True)
+    commits = pr_data.get('commits', {}).get('nodes', [])
+    if not commits:
+        # Couldn't find any commit to merge in this PR, it probably doesn't need any reviewing.
+        return _ReviewInfo(False)
+    rollup = commits[0].get('commit', {}).get('statusCheckRollup', {})
+    if rollup.get('state') != 'PENDING':
+        # Global state is either FAILURE or SUCCESS. In both cases, no need to ask for review.
+        return _ReviewInfo(False)
+    demo_url = next((
+        status.get('targetUrl')
+        for status in rollup.get('contexts', {}).get('nodes', [])
+        if status.get('context') == 'bayesimpact/demo-frontend'), None)
+    return _ReviewInfo(True, demo_url)
+
+
 def ping_request_reviewers(
         pull_request: _GithubPullRequest, demo_url: Optional[str], config: _Config, *,
-        before: Optional[datetime.datetime] = None) -> int:
+        before: Optional[datetime.datetime] = None, should_get_more_info: bool = True) -> int:
     """Ping reviewers for a given PR."""
 
     if before and before < datetime.datetime.fromisoformat(
@@ -150,6 +250,13 @@ def ping_request_reviewers(
     if pull_request.get('author', {}).get('login', '').endswith('[bot]'):
         # Not pinging for bot reviews.
         return 0
+    if should_get_more_info:
+        # Make sure we actually want a review.
+        should_review, real_demo_url = _get_more_info(pull_request, config)
+        if not should_review:
+            return 0
+        if not demo_url and real_demo_url:
+            demo_url = real_demo_url
     all_reviewers = list(filter(None, {
         reviewer.get('login', '')
         for reviewer_list in (
