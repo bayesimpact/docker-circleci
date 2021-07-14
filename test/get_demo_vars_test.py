@@ -81,12 +81,7 @@ class DemoVarsTestCase(unittest.TestCase):
         """Returns the expected value on the default branch."""
 
         default_branch = 'main'
-        self.assertEqual('', self._run_with_branch_and_tag(branch=default_branch))
-
-    def test_release_tag(self) -> None:
-        """Returns the expected value on a release tag."""
-
-        self.assertEqual('', self._run_with_branch_and_tag(tag='2020-02-18_01'))
+        self.assertEqual('repo=bayes%2Fbob', self._run_with_branch_and_tag(branch=default_branch))
 
     def test_simple_branch(self) -> None:
         """Returns the expected value on a side branch."""
@@ -139,7 +134,7 @@ class DemoVarsTestCase(unittest.TestCase):
             'name': 'approve-for-release',
             'type': 'approval',
         }]}
-        self.assertEqual('', self._run_with_branch_and_tag(tag='release', env={
+        self.assertEqual('repo=bayes%2Fbob', self._run_with_branch_and_tag(branch='main', env={
             'CIRCLE_WORKFLOW_ID': 'my-workflow-id',
             'CIRCLE_API_TOKEN': 'my-circle-token',
         }))
@@ -147,12 +142,19 @@ class DemoVarsTestCase(unittest.TestCase):
             'https://circleci.com/api/v2/workflow/my-workflow-id/job',
             headers={'Circle-Token': 'my-circle-token'})
 
-    def test_without_circle_token(self) -> None:
-        """Yield a ci_callback_url when there's a wait-for-demo approval in workflow."""
+    @mock.patch(get_demo_vars.requests.__name__ + '.get')
+    def test_for_release(self, mock_get: mock.MagicMock) -> None:
+        """Yield release variables when on a tag."""
 
-        with self.assertRaises(ValueError):
-            self._run_with_branch_and_tag(
-                tag='release', env={'CIRCLE_WORKFLOW_ID': 'my-workflow-id'})
+        mock_get.return_value.json.return_value = {'items': []}
+        encoded_vars = self._run_with_branch_and_tag(tag='my-tag', env={
+            'CIRCLE_API_TOKEN': 'token',
+            'CIRCLE_WORKFLOW_ID': 'my-workflow-id',
+        })
+        self.assertEqual(
+            'repo=bayes%2Fbob&release=my-tag&'
+            'release_callback=https%3A%2F%2Fcircleci.com%2Fworkflow-run%2Fmy-workflow-id',
+            encoded_vars)
 
 
 if __name__ == '__main__':
