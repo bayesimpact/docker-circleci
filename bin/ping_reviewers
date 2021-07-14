@@ -64,6 +64,9 @@ class _ReviewInfo(NamedTuple):
     # Whether the PR actually needs to be reviewed.
     should_review: bool
 
+    # The action the PR author should take, if any.
+    author_action: Optional[str] = None
+
     # A URL where a demo can be found for review, if available.
     demo_url: Optional[str] = None
 
@@ -227,16 +230,37 @@ def _get_more_info(pull_request: _GithubPullRequest, config: _Config) -> _Review
     commits = pr_data.get('commits', {}).get('nodes', [])
     if not commits:
         # Couldn't find any commit to merge in this PR, it probably doesn't need any reviewing.
-        return _ReviewInfo(False)
+        return _ReviewInfo(False, author_action='check')
     rollup = commits[0].get('commit', {}).get('statusCheckRollup', {})
-    if rollup.get('state') != 'PENDING':
+    rollup_state = rollup.get('state')
+    if rollup_state != 'PENDING':
         # Global state is either FAILURE or SUCCESS. In both cases, no need to ask for review.
-        return _ReviewInfo(False)
+        return _ReviewInfo(False, author_action='merge' if rollup_state == 'SUCCESS' else 'fix')
     demo_url = next((
         status.get('targetUrl')
         for status in rollup.get('contexts', {}).get('nodes', [])
         if status.get('context') == 'bayesimpact/demo-frontend'), None)
-    return _ReviewInfo(True, demo_url)
+    return _ReviewInfo(True, demo_url=demo_url)
+
+
+def warn_author(
+        number: str, title: str, github_author: str,
+        act_on: str, config: _Config) -> int:
+    try:
+        user: Optional[str] = _get_user(github_author, config, as_channel=True)
+    except KeyError:
+        user = None
+    your = 'your' if user else 'the'
+    you_need = 'You probably need' if user else 'One probably needs'
+    request: _Request = {
+        'text': f'Please, take a look at {your} PR <https://reviewable.io/reviews'
+        f'/{config.github_repo}/{number}|#{number}>. {you_need} to {act_on} it.',
+        'attachments': [{'text': title}],
+    }
+    if user:
+        request['channel'] = user
+    _post_to_slack(request, config)
+    return 1
 
 
 def ping_request_reviewers(
@@ -250,11 +274,14 @@ def ping_request_reviewers(
     if pull_request.get('author', {}).get('login', '').endswith('[bot]'):
         # Not pinging for bot reviews.
         return 0
+    ping_count = 0
     if should_get_more_info:
         # Make sure we actually want a review.
-        should_review, real_demo_url = _get_more_info(pull_request, config)
+        should_review, author_action, real_demo_url = _get_more_info(pull_request, config)
+        if author_action:
+            ping_count += warn_author()
         if not should_review:
-            return 0
+            return ping_count
         if not demo_url and real_demo_url:
             demo_url = real_demo_url
     all_reviewers = list(filter(None, {
@@ -264,13 +291,12 @@ def ping_request_reviewers(
             pull_request.get('assignees', []))
         for reviewer in reviewer_list}))
     if not all_reviewers:
-        return 0
+        return ping_count
     pr_number = str(pull_request['number'])
     logging.info(
         'Pinging reviewers (of #%s) on Slack to tell them the Demo is ready…', pr_number)
     title = pull_request['title']
     author = pull_request['user']['login']
-    ping_count = 0
     try:
         for reviewer in all_reviewers:
             # TODO(cyrille): Only ping the reviewers who haven't LGTM.
