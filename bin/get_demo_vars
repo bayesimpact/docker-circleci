@@ -58,9 +58,13 @@ def _get_variables(env: dict[str, str]) -> Iterator[Tuple[str, str]]:
     github_repo = env.get('CIRCLE_PROJECT_REPONAME')
     if callback_url := _get_callback_url(env):
         yield 'ci_callback_url', callback_url
+    yield 'repo', f'{github_user}/{github_repo}'
+    if tag:
+        yield 'release', tag
+        yield 'release_callback', \
+            f'https://circleci.com/workflow-run/{env.get("CIRCLE_WORKFLOW_ID")}'
     if tag or branch == 'main':
         return
-    yield 'repo', f'{github_user}/{github_repo}'
     yield 'branch', f'{github_user}:{branch}'
     commit_variables = _get_commit_variables()
     # TODO(cyrille): Replace with 'yield if true' pattern as above.
