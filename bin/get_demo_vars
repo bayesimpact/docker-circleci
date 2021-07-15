@@ -64,15 +64,10 @@ def _get_variables(env: Mapping[str, str]) -> Iterator[Tuple[str, str]]:
     yield 'repo', f'{github_user}/{github_repo}'
     yield 'branch', f'{github_user}:{branch}'
     commit_variables = _get_commit_variables()
-    # TODO(cyrille): Replace with 'yield if true' pattern as above.
-    try:
-        yield 'path', commit_variables.pop('PATH')
-    except KeyError:
-        pass
-    try:
-        yield 'env', commit_variables.pop('ENV')
-    except KeyError:
-        pass
+    if path := commit_variables.pop('PATH', None):
+        yield 'path', path
+    if demo_env := commit_variables.pop('ENV', None):
+        yield 'env', demo_env
     for key, value in commit_variables.items():
         yield 'override', f'{key}:{value}'
 
