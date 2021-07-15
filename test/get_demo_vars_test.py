@@ -2,6 +2,7 @@
 """Tests for the get_demo_vars script."""
 
 import contextlib
+from importlib import abc
 from importlib import machinery
 from importlib import util
 import os
@@ -9,22 +10,36 @@ from os import path
 import shutil
 import subprocess
 import tempfile
-from typing import Any, Iterator, Optional
+import types
+import typing
+from typing import Iterator, Optional
 import unittest
 from unittest import mock
+
+if typing.TYPE_CHECKING:
+    class _GetDemoVars(types.ModuleType):
+        # pylint: disable=invalid-name
+        def main(
+                self, string_args: Optional[list[str]],
+                env: Optional[dict[str, str]] = None) -> str:
+            """Run the get_demo_vars script."""
+
+        requests: types.ModuleType
 
 # Dynamic import of script without suffix. See https://stackoverflow.com/a/51575963/4482064
 machinery.SOURCE_SUFFIXES.append('')
 _SCRIPT_PATH = f'{path.dirname(path.dirname(path.abspath(__file__)))}/bin/get_demo_vars'
 _SCRIPT_SPEC = util.spec_from_file_location('get_demo_vars', _SCRIPT_PATH)
-get_demo_vars = util.module_from_spec(_SCRIPT_SPEC)
-_SCRIPT_SPEC.loader.exec_module(get_demo_vars)
+assert _SCRIPT_SPEC
+get_demo_vars = typing.cast('_GetDemoVars', util.module_from_spec(_SCRIPT_SPEC))
+assert _SCRIPT_SPEC.loader
+typing.cast(abc.Loader, _SCRIPT_SPEC.loader).exec_module(get_demo_vars)
 
 
-def _run_git(*command: str, **kwargs: Any) -> str:
+def _run_git(*command: str) -> str:
     return subprocess.check_output(
         ['git', '-c', 'user.email=test@example.com', '-c', 'user.name=TEST'] + list(command),
-        text=True, **kwargs).strip()
+        text=True).strip()
 
 
 @contextlib.contextmanager
@@ -48,10 +63,11 @@ def simple_branch(name: str) -> Iterator[None]:
 class DemoVarsTestCase(unittest.TestCase):
     """Tests for the demo vars script."""
 
+    _previous_dir = os.getcwd()
+    _dir = tempfile.mkdtemp(dir='/tmp')
+
     @classmethod
     def setUpClass(cls) -> None:
-        cls._previous_dir = os.getcwd()
-        cls._dir = tempfile.mkdtemp(dir='/tmp')
         os.chdir(cls._dir)
         _run_git('init')
         with open('some_init_file', 'w'):
@@ -150,9 +166,8 @@ class DemoVarsTestCase(unittest.TestCase):
     def test_without_circle_token(self) -> None:
         """Yield a ci_callback_url when there's a wait-for-demo approval in workflow."""
 
-        with self.assertRaises(ValueError):
-            self._run_with_branch_and_tag(
-                tag='release', env={'CIRCLE_WORKFLOW_ID': 'my-workflow-id'})
+        self.assertEqual('', self._run_with_branch_and_tag(
+            tag='release', env={'CIRCLE_WORKFLOW_ID': 'my-workflow-id'}))
 
 
 if __name__ == '__main__':
