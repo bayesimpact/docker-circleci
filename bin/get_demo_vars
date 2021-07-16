@@ -82,7 +82,7 @@ def main(string_args: Optional[list[str]] = None, env: Optional[dict[str, str]] 
     all_variables = list(_get_variables(env or os.environ))
     if args.variable:
         by_key = dict(all_variables)
-        return by_key[args.variable]
+        return by_key.get(args.variable, '')
     return parse.urlencode(all_variables)
 
 
