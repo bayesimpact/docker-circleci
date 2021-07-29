@@ -311,10 +311,11 @@ def _get_pr_api_url(config: _Config, should_ping_stale: bool) -> Optional[str]:
     pr_number = config.pr_number
     if not pr_number:
         # TODO(cyrille): Replace config.commit by CIRCLE_BRANCH, and use /pulls?head=branch instead.
-        response = requests.get('/search/issues', params=dict(q=config.commit), headers={
-            'Accept': 'application/vnd.github.v3+json',
-            'Authorization': f'token {config.github_token}',
-        })
+        response = requests.get(
+            'https://api.github.com/search/issues', params=dict(q=config.commit), headers={
+                'Accept': 'application/vnd.github.v3+json',
+                'Authorization': f'token {config.github_token}',
+            })
         response.raise_for_status()
         pr_number = str(response.json().get('number', ''))
     if not pr_number:
