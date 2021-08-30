@@ -6,6 +6,7 @@ Run using check_recent_todos duration [folder]
       folder is a subfolder of the current repo in which we look for the TODOs.
 """
 
+import argparse
 import functools
 import logging
 import os
@@ -14,7 +15,7 @@ import re
 import subprocess
 import sys
 import typing
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 import requests
 
@@ -131,13 +132,24 @@ def _make_slack_message(new_todos: List[_TodoRef], closed_todos_count: int, dura
     }
 
 
-def main(duration: str = '7 days', folder: str = '.') -> None:
+def main(string_args: Optional[Sequence[str]] = None) -> None:
     """Compare previous TODOs from current branch's."""
 
-    last_checked_commit = _run_git(['log', '--before', duration, '--format=%h', '-1', folder])
-    recent_todos = list(_grep_and_parse_all_todos(folder))
+    parser = argparse.ArgumentParser(
+        description='Check TODOs that have been added or deleted for a given duration on the repo.')
+    parser.add_argument(
+        'duration', default='7 days', nargs='?',
+        help="A `git log`-readable duration, e.g. '7 days' (default).")
+    parser.add_argument(
+        'folder', default='.', nargs='?',
+        help='A subfolder of the current repo in which we look for the TODOs.')
+    args = parser.parse_args(string_args)
+
+    last_checked_commit = _run_git([
+        'log', '--before', args.duration, '--format=%h', '-1', args.folder])
+    recent_todos = list(_grep_and_parse_all_todos(args.folder))
     _run_git(['-c', 'advice.detachedHead=false', 'checkout', last_checked_commit])
-    old_todos = list(_grep_and_parse_all_todos(folder))
+    old_todos = list(_grep_and_parse_all_todos(args.folder))
     _run_git(['checkout', '-'])
     new_todos = [todo for todo in recent_todos if todo not in old_todos]
     closed_todos_count = sum(1 for todo in old_todos if todo not in recent_todos)
@@ -146,9 +158,8 @@ def main(duration: str = '7 days', folder: str = '.') -> None:
     if _SLACK_INTEGRATION_URL:
         requests.post(
             _SLACK_INTEGRATION_URL,
-            json=_make_slack_message(new_todos, closed_todos_count, duration))
+            json=_make_slack_message(new_todos, closed_todos_count, args.duration))
 
 
 if __name__ == '__main__':
-    # TODO(cyrille): Replace with argparse.
-    main(*sys.argv[1:])
+    main()
