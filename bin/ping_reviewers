@@ -197,12 +197,14 @@ def _post_to_slack(prepared_request: _Request, config: _Config) -> None:
 
 
 def _send_review(
-        number: str, title: str, github_author: str, demo_url: Optional[str], config: _Config, *,
-        github_reviewer: Optional[str] = None, reviewers: Optional[str] = None) -> None:
+        number: str, title: str, github_author: str, demos: list[tuple[str, str]], config: _Config,
+        *, github_reviewer: Optional[str] = None, reviewers: Optional[str] = None) -> None:
     from_author = f"{_get_user(github_author, config)}'s"
+    text_start = 'CI tests passed' if not demos else \
+        f'A <{demos[0]}|demo> is ready' if len(demos) == 1 else \
+        f'Demos for <{">, <".join(demo[1] + "|" + demo[0] for demo in demos)}> are ready'
     request: _Request = {
-        'text': (f'A <{demo_url}|demo> is ready' if demo_url else 'CI tests passed') +
-        f' for {from_author} PR <https://reviewable.io/reviews'
+        'text': f'{text_start} for {from_author} PR <https://reviewable.io/reviews'
         f'/{config.github_repo}/{number}|#{number}>.',
         'attachments': [{'text': title}],
     }
@@ -245,7 +247,7 @@ def _get_more_info(pull_request: _GithubPullRequest, config: _Config) -> _Review
 
 
 def ping_request_reviewers(
-        pull_request: _GithubPullRequest, demo_url: Optional[str], config: _Config, *,
+        pull_request: _GithubPullRequest, demos: list[tuple[str, str]], config: _Config, *,
         before: Optional[datetime.datetime] = None, should_get_more_info: bool = True) -> int:
     """Ping reviewers for a given PR."""
 
@@ -260,8 +262,8 @@ def ping_request_reviewers(
         should_review, real_demo_url = _get_more_info(pull_request, config)
         if not should_review:
             return 0
-        if not demo_url and real_demo_url:
-            demo_url = real_demo_url
+        if not demos and real_demo_url:
+            demos = [('', real_demo_url)]
     all_reviewers = list(filter(None, {
         reviewer.get('login', '')
         for reviewer_list in (
@@ -280,13 +282,13 @@ def ping_request_reviewers(
         for reviewer in all_reviewers:
             # TODO(cyrille): Only ping the reviewers who haven't LGTM.
             # TODO(cyrille): Ping the author if there are no reviewers without LGTM.
-            _send_review(pr_number, title, author, demo_url, config, github_reviewer=reviewer)
+            _send_review(pr_number, title, author, demos, config, github_reviewer=reviewer)
             ping_count += 1
     except (requests.HTTPError, KeyError):
         logging.warning('Pinging on default channel')
         # Unable to send the review to one of the reviewers, sending it to default channel.
         named_reviewers = ', '.join(_get_user(r, config) for r in sorted(all_reviewers))
-        _send_review(pr_number, title, author, demo_url, config, reviewers=named_reviewers)
+        _send_review(pr_number, title, author, demos, config, reviewers=named_reviewers)
         ping_count += 1
     return ping_count
 
@@ -323,7 +325,8 @@ def _get_pr_api_url(config: _Config, should_ping_stale: bool) -> Optional[str]:
     return f'https://api.github.com/repos/{config.github_repo}/pulls/{pr_number}'
 
 
-def ping_reviewers(demo_url: Optional[str], ping_stale_reviews: bool, config: _Config) -> int:
+def ping_reviewers(demos: list[tuple[str, str]], ping_stale_reviews: bool, config: _Config) \
+        -> int:
     """Send slack pings to the relevant people, if requirements are met."""
 
     if not config.github_token:
@@ -351,7 +354,7 @@ def ping_reviewers(demo_url: Optional[str], ping_stale_reviews: bool, config: _C
     ping_count = 0
     for pull_request in pull_requests:
         ping_count += ping_request_reviewers(
-            pull_request, demo_url, config, before=yesterday if ping_stale_reviews else None)
+            pull_request, demos, config, before=yesterday if ping_stale_reviews else None)
     return ping_count
 
 
@@ -365,6 +368,11 @@ def main(string_args: Optional[list[str]] = None, env: Optional[dict[str, str]] 
     parser = argparse.ArgumentParser(description='Ping reviewers for the current PR.')
     parser.add_argument(
         'demo_url', help='A URL where a demo for the changes can be found.', nargs='?')
+    parser.add_argument(
+        '--demo-name', default='default', help='The name of the demo given in demo_url.')
+    parser.add_argument(
+        '--file', '-f',
+        help='JSON file with an object whose keys are demo names and values are demo URLs.')
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument('--release-callback')
     actions.add_argument('--ping-stale-reviews', action='store_true')
@@ -375,7 +383,14 @@ def main(string_args: Optional[list[str]] = None, env: Optional[dict[str, str]] 
         return 0
     if args.release_callback:
         return ping_for_release(args.demo_url, args.release_callback, config)
-    return ping_reviewers(args.demo_url, args.ping_stale_reviews, config)
+    demos: list[tuple[str, str]] = []
+    if args.demo_url:
+        demos.append((args.demo_name, args.demo_url))
+    if args.file:
+        with open(args.file, 'rt') as demos_file:
+            other_demos = typing.cast(dict[str, str], json.load(demos_file))
+        demos.extend(other_demos.items())
+    return ping_reviewers(demos, args.ping_stale_reviews, config)
 
 
 if __name__ == '__main__':
