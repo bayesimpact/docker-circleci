@@ -201,7 +201,7 @@ def _send_review(
         *, github_reviewer: Optional[str] = None, reviewers: Optional[str] = None) -> None:
     from_author = f"{_get_user(github_author, config)}'s"
     text_start = 'CI tests passed' if not demos else \
-        f'A <{demos[0]}|demo> is ready' if len(demos) == 1 else \
+        f'A <{demos[0][1]}|demo> is ready' if len(demos) == 1 else \
         f'Demos for <{">, <".join(demo[1] + "|" + demo[0] for demo in demos)}> are ready'
     request: _Request = {
         'text': f'{text_start} for {from_author} PR <https://reviewable.io/reviews'
