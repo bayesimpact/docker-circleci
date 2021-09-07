@@ -9,7 +9,8 @@ from unittest import mock
 
 # Dynamic import of script without suffix. See https://stackoverflow.com/a/51575963/4482064
 machinery.SOURCE_SUFFIXES.append('')
-_SCRIPT_PATH = f'{path.dirname(path.dirname(path.abspath(__file__)))}/bin/ping_reviewers'
+_SCRIPT_NAME = path.basename(__file__).removesuffix('_test.py')
+_SCRIPT_PATH = f'{path.dirname(path.dirname(path.abspath(__file__)))}/bin/{_SCRIPT_NAME}'
 _SCRIPT_SPEC = util.spec_from_file_location('ping_reviewers', _SCRIPT_PATH)
 ping_reviewers = util.module_from_spec(_SCRIPT_SPEC)
 _SCRIPT_SPEC.loader.exec_module(ping_reviewers)
