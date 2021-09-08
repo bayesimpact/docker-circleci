@@ -20,6 +20,8 @@ from typing import Any, Literal, Generic, NamedTuple, Optional, Protocol, TypedD
 
 import requests
 
+_DEMO_CONTEXT_PREFIX = 'bayesimpact/demo-'
+
 
 class _Config(NamedTuple):
     # The commit sha1.
@@ -72,7 +74,7 @@ class _ReviewInfo(NamedTuple):
     should_review: bool
 
     # A URL where a demo can be found for review, if available.
-    demo_url: Optional[str] = None
+    demo_urls: list[tuple[str, str]] = []
 
 
 class _GithubUser(TypedDict):
@@ -240,11 +242,31 @@ def _get_more_info(pull_request: _GithubPullRequest, config: _Config) -> _Review
     if rollup.get('state') != 'PENDING':
         # Global state is either FAILURE or SUCCESS. In both cases, no need to ask for review.
         return _ReviewInfo(False)
-    demo_url = next((
-        status.get('targetUrl')
+    demo_urls = [
+        (context.removeprefix(_DEMO_CONTEXT_PREFIX), target_url)
         for status in rollup.get('contexts', {}).get('nodes', [])
-        if status.get('context') == 'bayesimpact/demo-frontend'), None)
-    return _ReviewInfo(True, demo_url)
+        if (target_url := status.get('targetUrl'))
+        if (context := status.get('context'))
+        if context.startswith(_DEMO_CONTEXT_PREFIX)]
+    return _ReviewInfo(True, demo_urls)
+
+
+def create_demo_status(name: str, url: str, config: _Config) -> None:
+    """Add status for demo on Github."""
+
+    response = requests.post(
+        f'https://api.github.com/repos/{config.github_repo}/statuses/{config.commit}',
+        headers={
+            'Accept': 'application/vnd.github.machine-man-preview+json',
+            'Authorization': f'token {config.github_token}',
+        },
+        json={
+            'state': 'success',
+            'context': f'{_DEMO_CONTEXT_PREFIX}{name}',
+            'description': f'{name.capitalize()} demo is ready',
+            'target_url': url,
+        })
+    response.raise_for_status()
 
 
 def ping_request_reviewers(
@@ -268,11 +290,14 @@ def ping_request_reviewers(
         return 0
     if should_get_more_info:
         # Make sure we actually want a review.
-        should_review, real_demo_url = _get_more_info(pull_request, config)
+        should_review, demo_urls = _get_more_info(pull_request, config)
         if not should_review:
             return 0
-        if not demos and real_demo_url:
-            demos = [('', real_demo_url)]
+        existing_demos = dict(demo_urls)
+        required_demos = dict(demos)
+        demos = list((existing_demos | required_demos).items())
+        for demo in set(required_demos) - set(existing_demos):
+            create_demo_status(demo, required_demos[demo], config)
     pr_number = str(pull_request['number'])
     logging.info(
         'Pinging reviewers (of #%s) on Slack to tell them the Demo is ready…', pr_number)
