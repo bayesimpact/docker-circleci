@@ -14,6 +14,7 @@ import datetime
 import json
 import logging
 import os
+from os import path
 import typing
 from typing import Any, Literal, Generic, NamedTuple, Optional, Protocol, TypedDict
 
@@ -370,9 +371,12 @@ def main(string_args: Optional[list[str]] = None, env: Optional[dict[str, str]] 
         'demo_url', help='A URL where a demo for the changes can be found.', nargs='?')
     parser.add_argument(
         '--demo-name', default='default', help='The name of the demo given in demo_url.')
-    parser.add_argument(
-        '--file', '-f',
-        help='JSON file with an object whose keys are demo names and values are demo URLs.')
+    parser.add_argument('--directory', '-d', help='''
+        A folder where files represent different URLs to load.
+
+        Each file should be named with the demo name (e.g. "frontend")
+        and contain one line with the demo's URL.
+    ''')
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument('--release-callback')
     actions.add_argument('--ping-stale-reviews', action='store_true')
@@ -386,10 +390,10 @@ def main(string_args: Optional[list[str]] = None, env: Optional[dict[str, str]] 
     demos: list[tuple[str, str]] = []
     if args.demo_url:
         demos.append((args.demo_name, args.demo_url))
-    if args.file:
-        with open(args.file, 'rt') as demos_file:
-            other_demos = typing.cast(dict[str, str], json.load(demos_file))
-        demos.extend(other_demos.items())
+    if args.folder:
+        for filename in os.listdir(args.folder):
+            with open(path.join(args.folder, filename)) as file:
+                demos.append((filename, file.read().strip()))
     return ping_reviewers(demos, args.ping_stale_reviews, config)
 
 
