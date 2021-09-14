@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""A light implementation of Bazel parser."""
+
+from importlib import abc, machinery, util
+import logging
+import os
+from os import path
+from typing import Any, Final, Union
+
+# Allow importing modules from files with no extension, such as BUILD files.
+machinery.SOURCE_SUFFIXES.append('')
+
+
+class Package:
+    """Representation of a Bazel package."""
+
+    def __init__(self, name: str, parent: 'Package') -> None:
+        self.name: Final[str] = name
+        self.path: Final[str] = self.dir if isinstance(self, Workspace) else \
+            path.join(parent.path, name)
+        self.root: Final[Workspace] = self if isinstance(self, Workspace) else parent.root
+        path_to_root = '' if isinstance(self, Workspace) else path.relpath(self.path, self.root.dir)
+        self.absolute_ref: Final[str] = f'@{self.root.name}//{path_to_root}'
+        # TODO(cyrille): Add targets.
+        self._must_load = True
+        self._children: dict[str, 'Package'] = {}
+
+    def __hash__(self) -> int:
+        return hash(self.path)
+
+    def __eq__(self, other: Any) -> bool:
+        return isinstance(other, self.__class__) and other.path == self.path
+
+    def __str__(self) -> str:
+        return self.absolute_ref
+
+    def _load(self) -> None:
+        """Load all the rules for this package."""
+
+        if not self._must_load:
+            return
+        self._must_load = False
+        build_file = path.join(self.path, 'BUILD')
+        if not path.exists(build_file):
+            logging.warning('No BUILD file found in "%s".', build_file)
+            return
+        logging.info('Building %s', self)
+        build_spec = util.spec_from_file_location('BUILD', build_file)
+        assert build_spec
+        if not isinstance(build_spec.loader, abc.Loader):
+            raise TypeError(f'Unable to load spec from file: {build_spec.__class__}')
+        build_module = util.module_from_spec(build_spec)
+        # TODO(cyrille): Add globals to build_module.
+        build_spec.loader.exec_module(build_module)
+
+    def get_package(self, rel_path: Union[str, list[str]]) -> 'Package':
+        """Returns the package in the current workspace at the given relative path."""
+
+        if not rel_path:
+            return self
+        if isinstance(rel_path, str):
+            if rel_path.startswith('//'):
+                return self.root.get_package(rel_path.removeprefix('//'))
+            rel_path = rel_path.split('/')
+        if not rel_path:
+            return self
+        child = self._children.get(rel_path[0])
+        if not child:
+            self._children[rel_path[0]] = child = Package(rel_path[0], self)
+        return child.get_package(rel_path[1:])
+
+    @staticmethod
+    def _split_target(name: str) -> tuple[str, str]:
+        if ':' not in name:
+            name = f'{name}:'
+        package, name = name.split(':')
+        return package, name
+
+    def is_parent_of(self, other: 'Package') -> bool:
+        """Whether other is a subpackage of self."""
+
+        return other.absolute_ref.startswith(self.absolute_ref)
+
+
+class Workspace(Package):
+    """A Bazel workspace.
+
+    This is also a package, which is described with the root directory BUILD file.
+    Constructor takes the root folder as parameter.
+    """
+
+    def __init__(self, cwd: str = os.getcwd()) -> None:
+        root_dir = path.abspath(cwd)
+        while not path.exists(path.join(root_dir, 'WORKSPACE')) and not path.ismount(root_dir):
+            root_dir = path.dirname(root_dir)
+        if path.ismount(root_dir):
+            raise AssertionError('The current workspace is missing a WORKSPACE file at root.')
+        self.dir: Final[str] = root_dir
+        name = path.basename(path.abspath(root_dir))
+        super().__init__(name, self)
+        self._children['third_party'] = _ThirdParty(self)
+
+
+class _ThirdParty(Package):
+
+    def __init__(self, parent: Workspace) -> None:
+        super().__init__('third_party', parent)
+        self._must_load = False
+
+    def get_package(self, unused_path: Union[str, list[str]]) -> Package:
+        return self
+
+
+if __name__ == '__main__':
+    # TODO(cyrille): Use argparse to be able to do different things.
+    print(Workspace())
