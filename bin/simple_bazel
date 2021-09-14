@@ -47,10 +47,11 @@ class _Rule(metaclass=RuleMeta):
 
     # TODO(cyrille): Implement the generic rule behavior here.
     rule_name = 'genrule'
+    can_export_files = False
 
     def __init__(self, srcs: Iterable[Union[str, Iterator[str]]], package: 'Package') -> None:
         self._srcs: Final[list[File]] = [
-            File(file, package)
+            File(file, package, is_exported=self.can_export_files)
             for file_or_glob in srcs
             if (files := [file_or_glob] if isinstance(file_or_glob, str) else file_or_glob)
             for file in files]
@@ -60,18 +61,20 @@ class Target(_Rule):
     """A Bazel target."""
 
     def __init__(
-            self, *, name: str, deps: Optional[list[str]] = None,
+            self, *, name: str, package: 'Package', deps: Optional[list[str]] = None,
             srcs: Optional[Iterable[Union[str, Iterator[str]]]] = None,
-            package: 'Package', **unused_kwargs: Any) -> None:
+            visibility: Optional[Iterable[str]] = None, **unused_kwargs: Any) -> None:
         super().__init__(srcs=srcs or [], package=package)
         self.name: Final[str] = name
-        self._package: Final['Package'] = package
+        self.package: Final['Package'] = package
         self.absolute_ref: Final[str] = package.absolute_ref if self.name == package.name else \
             f'{package.absolute_ref}:{self.name}'
         self.deps: set[Target] = set()
         self.downstream: set[Target] = {self}
         self._dependency_refs = set(deps or [])
         self._must_load_dependencies = True
+        self._visibilities = package.default_visibility if visibility is None else {
+            package.resolve_visibility(v) for v in visibility}
         if not package.get_target(f':{self.name}'):
             package.add_target(self)
 
@@ -82,10 +85,10 @@ class Target(_Rule):
         for src in self._srcs:
             self.add_dependency(src)
         for dep in self._dependency_refs:
-            if dep_target := self._package.get_target(dep):
+            if dep_target := self.package.get_target(dep):
                 self.add_dependency(dep_target)
             else:
-                self._package.wait_for(dep, self)
+                self.package.wait_for(dep, self)
 
     def __str__(self) -> str:
         return self.absolute_ref
@@ -103,6 +106,8 @@ class Target(_Rule):
             raise AssertionError(f'Cannot have two dependencies with the same ref: {dep}')
         if dep in self.downstream:
             raise AssertionError(f'Circular dependency between {self} and {dep}')
+        if all(not v.can_show_to(self) for v in dep._visibilities):
+            raise AssertionError(f'Dependency {dep} is not visible to {self}.')
         dep.downstream |= self.downstream
         self.deps.add(dep)
 
@@ -128,7 +133,7 @@ type('py_library', (Target,), {})
 type('py_test', (Target,), {})
 type('sh_binary', (Target,), {})
 
-type('exports_files', (_Rule,), {})
+type('exports_files', (_Rule,), {'can_export_files': True})
 
 
 class File(Target):
@@ -136,22 +141,97 @@ class File(Target):
 
     builtin = False
 
-    def __init__(self, name: str, package: 'Package') -> None:
+    def __init__(self, name: str, package: 'Package', *, is_exported: bool) -> None:
         super().__init__(name=name, package=package)
         self._must_load_dependencies = False
+        self._visibilities = {Public() if is_exported else Private()}
         # Make sure the file exists.
         assert self.hash
 
     @functools.cached_property
     def hash(self) -> str:
         hasher = hashlib.sha1(super().hash.encode())
-        with open(path.join(self._package.path, self.name), 'rb') as bytestream:
+        with open(path.join(self.package.path, self.name), 'rb') as bytestream:
             while True:
                 chunk = bytestream.read(_BUF_SIZE)
                 if not chunk:
                     break
                 hasher.update(chunk)
         return hasher.hexdigest()
+
+
+class PackageRule(_Rule):
+
+    rule_name = 'package'
+
+    def __init__(
+            self, *,
+            package: 'Package', default_visibility: Optional[Iterable[str]] = None,
+            **unused_kwargs: Any) -> None:
+        super().__init__(srcs=[], package=package)
+        if package._targets:
+            raise AssertionError(
+                f'The "{self.rule_name}" rule should be the first declared rule in the package.')
+        if default_visibility is not None:
+            package.default_visibility = {package.resolve_visibility(v) for v in default_visibility}
+
+
+class PackageGroup(Target):
+
+    rule_name = 'package_group'
+
+    def __init__(
+            self, *, package: 'Package', name: str,
+            packages: Optional[Iterable[str]] = None) -> None:
+        super().__init__(name=name, package=package)
+        self.visibilities: list[Visibility] = []
+        for pack in packages or []:
+            if pack.startswith('-'):
+                raise NotImplementedError('Cannot exclude packages from visibility for now.')
+            if not pack.startswith('//'):
+                raise AssertionError('Package group packages should start with "//".')
+            if ':' in pack:
+                raise AssertionError('Package group may only contains packages.')
+            if pack.endswith('...'):
+                pack = f'{pack.removesuffix("...")}:__subpackages__'
+            else:
+                pack = f'{pack}:__pkg__'
+            self.visibilities.append(package.resolve_visibility(pack))
+
+
+class Visibility:
+
+    def can_show_to(self, unused_target: Target) -> bool:
+        return False
+
+
+class Public(Visibility):
+    def can_show_to(self, unused_target: Target) -> bool:
+        return True
+
+
+class PackageVis(Visibility):
+    def __init__(self, package: 'Package') -> None:
+        self._package = package
+
+    def can_show_to(self, target: Target) -> bool:
+        return target.package == self._package
+
+
+class SubpackageVis(Visibility):
+    def __init__(self, package: 'Package') -> None:
+        self._package = package
+
+    def can_show_to(self, target: Target) -> bool:
+        return self._package.is_parent_of(target.package)
+
+
+class PackageGroupVis(Visibility):
+    def __init__(self, group: PackageGroup) -> None:
+        self._group = group
+
+    def can_show_to(self, target: Target) -> bool:
+        return any(v.can_show_to(target) for v in self._group.visibilities)
 
 
 class Package:
@@ -163,6 +243,7 @@ class Package:
         self.root: Final[Workspace] = self if isinstance(self, Workspace) else parent.root
         path_to_root = '' if isinstance(self, Workspace) else path.relpath(self.path, self.root.dir)
         self.absolute_ref: Final[str] = f'@{self.root.name}//{path_to_root}'
+        self.default_visibility: set[Visibility] = {PackageVis(self)}
         self._must_load = True
         self._children: dict[str, 'Package'] = {}
         self._targets: dict[str, Target] = {}
@@ -209,19 +290,19 @@ class Package:
             waiter.add_dependency(target)
         del self._waiting_for_dep[target.name]
 
-    def get_package(self, rel_path: Union[str, list[str]]) -> 'Package':
+    def getpackage(self, rel_path: Union[str, list[str]]) -> 'Package':
         """Returns the package in the current workspace at the given relative path."""
 
         if not rel_path:
             return self
         if isinstance(rel_path, str):
             if rel_path.startswith('//'):
-                return self.root.get_package(rel_path.removeprefix('//'))
+                return self.root.getpackage(rel_path.removeprefix('//'))
             rel_path = rel_path.split('/')
         child = self._children.get(rel_path[0])
         if not child:
             self._children[rel_path[0]] = child = Package(rel_path[0], self)
-        return child.get_package(rel_path[1:])
+        return child.getpackage(rel_path[1:])
 
     @staticmethod
     def _split_target(name: str) -> tuple[str, str]:
@@ -230,12 +311,42 @@ class Package:
         package, name = name.split(':')
         return package, name
 
+    def is_parent_of(self, other: 'Package') -> bool:
+        """Whether other is a subpackage of self."""
+
+        return other.absolute_ref.startswith(self.absolute_ref)
+
+    def resolve_visibility(self, vis: str) -> Visibility:
+        if vis == '//visibility:public':
+            return Public()
+        package, local_vis = self._split_target(vis)
+        if package == '//visibility':
+            if local_vis == 'public':
+                return Public()
+            if local_vis == 'private':
+                return PackageVis(self)
+            raise ValueError(f'Unrecognized global visibility "{local_vis}"')
+        if package:
+            return self.getpackage(package).resolve_visibility(f':{local_vis}')
+        if local_vis == '__pkg__':
+            return PackageVis(self)
+        if local_vis == '__subpackages__':
+            return SubpackageVis(self)
+        self._load()
+        package_group = self.get_target(f':{local_vis}')
+        if not package_group:
+            raise AssertionError(f'Visibility "{local_vis}" must be a defined target.')
+        if isinstance(package_group, PackageGroup):
+            return PackageGroupVis(package_group)
+        raise AssertionError(f'Visibility "{self}:{local_vis}" must be a "package_group".')
+
+
     def get_target(self, name: str) -> Optional[Target]:
         """Find the target with the given reference, if it exists."""
 
         package, name = self._split_target(name)
         if package:
-            return self.get_package(package).get_target(f':{name}')
+            return self.getpackage(package).get_target(f':{name}')
         self._load()
         return self._targets.get(name)
 
@@ -248,7 +359,7 @@ class Package:
 
         package, name = self._split_target(reference)
         if package:
-            self.get_package(package).wait_for(name, target)
+            self.getpackage(package).wait_for(name, target)
         else:
             self._waiting_for_dep[name].add(target)
 
@@ -298,7 +409,7 @@ class Workspace(Package):
         yield from self.get_all_targets()
         for file in _local_glob('*/**/BUILD', self.dir):
             package_ref = file.removesuffix('/BUILD')
-            yield from self.get_package(package_ref).get_all_targets()
+            yield from self.getpackage(package_ref).get_all_targets()
 
 
 class _ThirdParty(Package):
@@ -311,7 +422,7 @@ class _ThirdParty(Package):
         # TODO(cyrille): Check 3rd party version somehow.
         pass
 
-    def get_package(self, unused_path: Union[str, list[str]]) -> Package:
+    def getpackage(self, unused_path: Union[str, list[str]]) -> Package:
         return self
 
 

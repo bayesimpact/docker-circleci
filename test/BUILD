@@ -4,7 +4,10 @@ py_test(
         ':get_demo_vars_test',
         ':ping_reviewers_test',
         ':simple_bazel_test',
-    ])
+    ],
+    visibility = ['//visibility:public'],
+)
+
 py_test(
     name = 'get_demo_vars_test',
     srcs = ['get_demo_vars_test.py'],

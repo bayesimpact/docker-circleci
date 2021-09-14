@@ -1,3 +1,5 @@
+package(default_visibility = ['//test:__pkg__'])
+
 py_test(
     name = 'check_fresh_release',
     srcs = ['check_fresh_release'],
