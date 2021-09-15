@@ -26,10 +26,8 @@ if typing.TYPE_CHECKING:
 
         requests: types.ModuleType
 
-# Dynamic import of script without suffix. See https://stackoverflow.com/a/51575963/4482064
-machinery.SOURCE_SUFFIXES.append('')
-_SCRIPT_PATH = f'{path.dirname(path.dirname(path.abspath(__file__)))}/bin/get_demo_vars'
-_SCRIPT_SPEC = util.spec_from_file_location('get_demo_vars', _SCRIPT_PATH)
+_SCRIPT_PATH = f'{path.dirname(path.dirname(path.abspath(__file__)))}/bin/get_demo_vars.py'
+_SCRIPT_SPEC = util.spec_from_file_location('get_demo_vars.py', _SCRIPT_PATH)
 assert _SCRIPT_SPEC
 get_demo_vars = typing.cast('_GetDemoVars', util.module_from_spec(_SCRIPT_SPEC))
 assert _SCRIPT_SPEC.loader
