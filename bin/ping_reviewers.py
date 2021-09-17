@@ -16,7 +16,7 @@ import logging
 import os
 from os import path
 import typing
-from typing import Any, Literal, Generic, NamedTuple, Optional, Protocol, TypedDict
+from typing import Any, Literal, Generic, NamedTuple, Optional, Protocol, Sequence, TypedDict
 
 import requests
 
@@ -359,7 +359,7 @@ def ping_reviewers(demos: list[tuple[str, str]], ping_stale_reviews: bool, confi
     return ping_count
 
 
-def main(string_args: Optional[list[str]] = None, env: Optional[dict[str, str]] = None) -> int:
+def main(string_args: Optional[Sequence[str]] = None, env: Optional[dict[str, str]] = None) -> int:
     """Parse CLI arguments and ping reviewers.
 
     Return the number of ping sent (for testing purposes).

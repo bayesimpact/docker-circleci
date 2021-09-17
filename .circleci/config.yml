@@ -8,6 +8,9 @@ jobs:
       - setup_remote_docker:
           reusable: true
       - run:
+          name: Check types on all python scripts.
+          command: touch bin/__init__.pyi && mypy . || echo "Please, install mypy."
+      - run:
           name: Test the python scripts
           # TODO(cyrille): Use nose.
           command: ls test/*_test.py | xargs -n1 python3
