@@ -3,7 +3,6 @@
 
 import contextlib
 from importlib import abc
-from importlib import machinery
 from importlib import util
 import os
 from os import path
@@ -26,12 +25,15 @@ if typing.TYPE_CHECKING:
 
         requests: types.ModuleType
 
-_SCRIPT_PATH = f'{path.dirname(path.dirname(path.abspath(__file__)))}/bin/get_demo_vars.py'
-_SCRIPT_SPEC = util.spec_from_file_location('get_demo_vars.py', _SCRIPT_PATH)
-assert _SCRIPT_SPEC
-get_demo_vars = typing.cast('_GetDemoVars', util.module_from_spec(_SCRIPT_SPEC))
-assert _SCRIPT_SPEC.loader
-typing.cast(abc.Loader, _SCRIPT_SPEC.loader).exec_module(get_demo_vars)
+if typing.TYPE_CHECKING:
+    from bin import get_demo_vars
+else:
+    _SCRIPT_PATH = f'{path.dirname(path.dirname(path.abspath(__file__)))}/bin/get_demo_vars.py'
+    _SCRIPT_SPEC = util.spec_from_file_location('get_demo_vars.py', _SCRIPT_PATH)
+    assert _SCRIPT_SPEC
+    get_demo_vars = typing.cast('_GetDemoVars', util.module_from_spec(_SCRIPT_SPEC))
+    assert _SCRIPT_SPEC.loader
+    typing.cast(abc.Loader, _SCRIPT_SPEC.loader).exec_module(get_demo_vars)
 
 
 def _run_git(*command: str) -> str:
