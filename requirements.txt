@@ -2,6 +2,7 @@ awscli>=1.18.220
 awscurl
 codecov
 json5
+pip-tools=6.2.0
 python-keystoneclient
 python-swiftclient
 pyYAML
