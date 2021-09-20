@@ -1,4 +1,4 @@
-version: 2
+version: 2.1
 jobs:
   test:
     docker:
@@ -23,7 +23,11 @@ jobs:
           name: Ping the reviewers
           command: ping_reviewers
 
-  build-publish:
+  build:
+    parameters:
+      publish:
+        default: false
+        type: boolean
     docker:
       - image: bayesimpact/circleci
     steps:
@@ -33,11 +37,14 @@ jobs:
       - run:
           name: Build a new docker image
           command: docker build --pull -t bayesimpact/circleci .
-      - run:
-          name: Push docker image to DockerHub
-          command: |
-            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USER" --password-stdin
-            docker push bayesimpact/circleci
+      - when:
+          condition: <<parameters.publish>>
+          steps:
+            - run:
+                name: Push docker image to DockerHub
+                command: |
+                  echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USER" --password-stdin
+                  docker push bayesimpact/circleci
   ping-stale-reviews:
     docker:
       - image: bayesimpact/circleci
@@ -46,7 +53,7 @@ jobs:
 
 workflows:
   version: 2
-  test-build-publish:
+  test-build:
     jobs:
       - test
       - ping:
@@ -56,7 +63,16 @@ workflows:
           context: Slack
           requires:
             - test
-      - build-publish:
+      - build:
+          name: test-build
+          filters:
+            branches:
+              ignore: main
+          requires:
+            - test
+      - build:
+          name: publish
+          publish: true
           filters:
             branches:
               only: main
@@ -84,5 +100,6 @@ workflows:
                 - main
     jobs:
       # To make sure cimg/python:3.9-node is still current.
-      - build-publish:
+      - build:
+          publish: true
           context: Docker
