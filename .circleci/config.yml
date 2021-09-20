@@ -35,8 +35,10 @@ jobs:
       - setup_remote_docker:
           reusable: true
       - run:
-          name: Build a new docker image
-          command: docker build --pull -t bayesimpact/circleci .
+          name: Build docker images
+          command: |
+            docker build --pull -t bayesimpact/circleci . --target base
+            docker build --pull -t bayesimpact/circleci:gcloud . --target gcloud
       - when:
           condition: <<parameters.publish>>
           steps:
@@ -45,6 +47,7 @@ jobs:
                 command: |
                   echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USER" --password-stdin
                   docker push bayesimpact/circleci
+                  docker push bayesimpact/circleci:gcloud
   ping-stale-reviews:
     docker:
       - image: bayesimpact/circleci
