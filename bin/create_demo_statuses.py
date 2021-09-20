@@ -156,7 +156,7 @@ def main(string_args: Optional[Sequence[str]] = None) -> None:
         for filename in os.listdir(args.directory):
             with open(path.join(args.directory, filename)) as file:
                 demo_urls[filename] = file.read().strip()
-    demo_urls |= wait_for_deployment_urls({d.lower() for d in args.deployments})
+    demo_urls |= wait_for_deployment_urls({d.lower() for d in args.deployments or []})
     for name, url in demo_urls.items():
         create_demo_status(name, url)
 
