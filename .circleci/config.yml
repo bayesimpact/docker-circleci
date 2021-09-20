@@ -56,13 +56,7 @@ workflows:
   test-build-publish:
     jobs:
       - test
-      - ping:
-          filters:
-            branches:
-              ignore: main
-          context: Slack
-          requires:
-            - test
+      # Not for main.
       - build:
           name: test-build
           filters:
@@ -70,13 +64,25 @@ workflows:
               ignore: main
           requires:
             - test
+      # For main: build and publish.
       - build:
           name: publish
           publish: true
           filters:
             branches:
               only: main
+          requires:
+            - test
           context: Docker
+      # Not for main.
+      - ping:
+          filters:
+            branches:
+              ignore: main
+          context: Slack
+          requires:
+            - test
+            - test-build
 
   morningly:
     triggers:
