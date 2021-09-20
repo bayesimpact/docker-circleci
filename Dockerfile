@@ -21,9 +21,17 @@ RUN wget -o /dev/null -O hub.tgz "https://github.com/github/hub/releases/downloa
   npm i -g json5; \
   # Install commit message hook from bayes-developer-setup.
   wget -O /usr/local/bin/check-commit-msg "https://raw.githubusercontent.com/bayesimpact/bayes-developer-setup/${BAYES_DEV_SETUP_TAG}/hooks/commit-msg" && \
-  chmod +x /usr/local/bin/check-commit-msg
+  chmod +x /usr/local/bin/check-commit-msg; \
+  # Install Bazel; see https://docs.bazel.build/versions/main/install-ubuntu.html#install-on-ubuntu
+  # TODO(cyrille): Consider doing this only for the :bazel tag.
+  apt install apt-transport-https curl gnupg; \
+  curl -fsSL https://bazel.build/bazel-release.pub.gpg | gpg --dearmor > bazel.gpg; \
+  mv bazel.gpg /etc/apt/trusted.gpg.d/; \
+  echo "deb [arch=amd64] https://storage.googleapis.com/bazel-apt stable jdk1.8" | sudo tee /etc/apt/sources.list.d/bazel.list; \
+  apt update && apt install bazel
 
 # Install gcloud package
+# TODO(cyrille): Consider doing this only for the :gcloud tag.
 RUN curl https://dl.google.com/dl/cloudsdk/release/google-cloud-sdk.tar.gz > /tmp/google-cloud-sdk.tar.gz && \
   mkdir -p /usr/local/gcloud && \
   tar -C /usr/local/gcloud -xvf /tmp/google-cloud-sdk.tar.gz && \
