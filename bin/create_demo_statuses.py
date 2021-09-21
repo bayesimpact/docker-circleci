@@ -87,10 +87,13 @@ def wait_for_deployment_urls(
         return {}
     deployments = set(deployments)
     owner = os.getenv('CIRCLE_PROJECT_USERNAME')
-    pr_number = os.getenv('CIRCLE_PR_NUMBER')
+    try:
+        pr_number = int(os.getenv('CIRCLE_PULL_REQUEST', '').rsplit('/', 1)[-1])
+    except ValueError as error:
+        raise ValueError('Missing a pull request for which to check deployments.') from error
     repo = os.getenv('CIRCLE_PROJECT_REPONAME')
     token = os.getenv('GITHUB_TOKEN')
-    if not owner or not repo or not pr_number or not token:
+    if not owner or not repo or not token:
         return {}
     result: dict[str, Optional[str]] = {}
     for unused_ in range(max_retry):
@@ -98,7 +101,7 @@ def wait_for_deployment_urls(
             'query': _DEPLOYMENTS_GRAPHQL_QUERY,
             'variables': {
                 'owner': owner,
-                'prNumber': int(pr_number),
+                'prNumber': pr_number,
                 'repo': repo,
             },
         }, headers={'Authorization': f'token {token}'})
