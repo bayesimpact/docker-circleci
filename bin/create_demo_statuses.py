@@ -28,6 +28,13 @@ _DEMO_CONTEXT_PREFIX = 'bayesimpact/demo-'
 _DEPLOYMENTS_GRAPHQL_QUERY = '''query($repo: String!, $owner: String!, $prNumber: Int!) {
   repository(name: $repo, owner: $owner) {
     pullRequest(number: $prNumber) {
+      commits(last: 1) {
+        nodes {
+          commit {
+            messageBody
+          }
+        }
+      }
       timelineItems(last: 10, itemTypes: [DEPLOYED_EVENT]) {
         nodes {
           ...on DeployedEvent {
@@ -107,8 +114,13 @@ def wait_for_deployment_urls(
         }, headers={'Authorization': f'token {token}'})
         response.raise_for_status()
         response_data: 'types._Response' = response.json()
-        for event in response_data.get('data', {}).get('repository', {}).\
-                get('pullRequest', {}).get('timelineItems', {}).get('nodes', []):
+        pull_request = response_data.get('data', {}).get('repository', {}).get('pullRequest', {})
+        url_path = next((
+            line.removeprefix('PATH=')
+            for pr_commit in pull_request.get('commits', {}).get('nodes', [])
+            for line in pr_commit.get('commit', {}).get('messageBody', '').split('\n')
+            if line.startswith('PATH=')), None)
+        for event in pull_request.get('timelineItems', {}).get('nodes', []):
             deployment = event.get('deployment', {})
             name = deployment.get('description', '').lower()
             if name not in deployments:
@@ -120,11 +132,12 @@ def wait_for_deployment_urls(
                 result[name] = None
             if state in _WAITING_DEPLOYMENT_STATES:
                 break
-            if state in _READY_DEPLOYMENT_STATES:
-                url = deployment.get('latestStatus', {}).get('environmentUrl')
-                if not url:
-                    raise ValueError('Got a ready deployment without a URL...')
-                result[name] = url
+            if state not in _READY_DEPLOYMENT_STATES:
+                continue
+            url = deployment.get('latestStatus', {}).get('environmentUrl')
+            if not url:
+                raise ValueError('Got a ready deployment without a URL...')
+            result[name] = f'{url}{url_path or ""}'
         else:
             deployments -= set(result)
             if not deployments:

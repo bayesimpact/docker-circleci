@@ -33,7 +33,12 @@ _Deployment = TypedDict('_Deployment', {
     'latestStatus': _DeploymentStatus,
 }, total=False)
 _DeployedEvent = TypedDict('_DeployedEvent', {'deployment': _Deployment})
-_PullRequest = TypedDict('_PullRequest', {'timelineItems': _Connection[_DeployedEvent]})
+_Commit = TypedDict('_Commit', {'messageBody': str})
+_PRCommit = TypedDict('_PRCommit', {'commit': _Commit})
+_PullRequest = TypedDict('_PullRequest', {
+    'commits': _Connection[_PRCommit],
+    'timelineItems': _Connection[_DeployedEvent],
+})
 _Repository = TypedDict('_Repository', {'pullRequest': _PullRequest})
 _Data = TypedDict('_Data', {'repository': _Repository}, total=False)
 _Response = TypedDict('_Response', {'data': _Data})
