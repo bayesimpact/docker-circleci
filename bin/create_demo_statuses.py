@@ -13,6 +13,7 @@ from os import path
 import time
 import typing
 from typing import Optional, Sequence, Set
+from urllib import parse
 
 import requests
 
@@ -137,7 +138,7 @@ def wait_for_deployment_urls(
             url = deployment.get('latestStatus', {}).get('environmentUrl')
             if not url:
                 raise ValueError('Got a ready deployment without a URL...')
-            result[name] = f'{url}{url_path or ""}'
+            result[name] = parse.urljoin(url, url_path or '')
         else:
             deployments -= set(result)
             if not deployments:
